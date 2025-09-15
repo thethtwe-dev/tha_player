@@ -1,9 +1,15 @@
 name: tha_player
-description: "A customizable network-only video player inspired by MX Player, written with pure Flutter and Dart."
-version: 0.0.2
+description: "Native network-only video player with custom Android (ExoPlayer) and iOS (AVPlayer) engines."
+version: 0.2.0
 homepage: https://github.com/thethtwe-dev/tha_player
 repository: https://github.com/thethtwe-dev/tha_player
 issue_tracker: https://github.com/thethtwe-dev/tha_player/issues
+topics:
+  - video
+  - player
+  - media
+  - drm
+  - thumbnails
 
 environment:
   sdk: ^3.7.2
@@ -13,7 +19,7 @@ dependencies:
   flutter:
     sdk: flutter
   
-  video_player: ^2.9.5
+  # No third-party Flutter playback plugins; we use native code via platform views
   cupertino_icons: ^1.0.8
   plugin_platform_interface: ^2.0.2
 

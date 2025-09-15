@@ -1,16 +1,31 @@
-# tha_player_example
+# tha_player example
 
-Demonstrates how to use the tha_player plugin.
+This example shows how to use the native player with modern controls.
 
-## Getting Started
+## Run
 
-This project is a starting point for a Flutter application.
+```
+cd example
+flutter run
+```
 
-A few resources to get you started if this is your first Flutter project:
+## Quick Start Snippet
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+```
+final ctrl = ThaNativePlayerController.single(
+  ThaMediaSource(
+    'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    // thumbnailVttUrl: 'https://example.com/thumbs.vtt',
+  ),
+  autoPlay: true,
+);
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+AspectRatio(
+  aspectRatio: 16 / 9,
+  child: ThaModernPlayer(
+    controller: ctrl,
+    doubleTapSeek: Duration(seconds: 10),
+    autoHideAfter: Duration(seconds: 3),
+  ),
+)
+```
