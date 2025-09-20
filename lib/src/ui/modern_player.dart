@@ -843,356 +843,617 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
   }
 
   Widget _controls(BuildContext context, ThaPlaybackState st) {
-    return Container(
-      color: Colors.black45,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 520;
+        final leading = _buildLeadingControls(context, st, isCompact);
+        final trailing = _buildTrailingControls(context, isCompact);
+        return Container(
+          color: Colors.black45,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildProgressRow(context, st),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  ..._joinWithSpacing(leading),
+                  const Spacer(),
+                  ..._joinWithSpacing(trailing),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProgressRow(BuildContext context, ThaPlaybackState st) {
+    return Row(
+      children: [
+        Text(
+          _fmt(st.position),
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            ),
+            child: Slider(
+              min: 0,
+              max: st.duration.inMilliseconds.toDouble().clamp(
+                1,
+                double.infinity,
+              ),
+              value:
+                  st.position.inMilliseconds
+                      .clamp(0, st.duration.inMilliseconds)
+                      .toDouble(),
+              onChanged:
+                  (v) => setState(
+                    () => _preview = Duration(milliseconds: v.toInt()),
+                  ),
+              onChangeEnd: (v) {
+                widget.controller.seekTo(Duration(milliseconds: v.toInt()));
+                setState(() => _preview = null);
+              },
+            ),
+          ),
+        ),
+        Text(
+          _fmt(st.duration),
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _joinWithSpacing(List<Widget> children, {double spacing = 6}) {
+    if (children.isEmpty) return const [];
+    final output = <Widget>[];
+    for (var i = 0; i < children.length; i++) {
+      output.add(children[i]);
+      if (i != children.length - 1) {
+        output.add(SizedBox(width: spacing));
+      }
+    }
+    return output;
+  }
+
+  List<Widget> _buildLeadingControls(
+    BuildContext context,
+    ThaPlaybackState st,
+    bool isCompact,
+  ) {
+    final widgets = <Widget>[_buildPlayPauseButton(st)];
+    if (isCompact) {
+      widgets.add(_buildLockButton());
+    } else {
+      widgets
+        ..add(_buildQualityButton(context))
+        ..add(_buildAudioButton(context))
+        ..add(_buildSubtitleButton(context))
+        ..add(_buildLockButton())
+        ..add(_buildSpeedButton());
+    }
+    return widgets;
+  }
+
+  List<Widget> _buildTrailingControls(BuildContext context, bool isCompact) {
+    final widgets = <Widget>[
+      if (!isCompact) _buildResizeButton(context),
+      _buildPipButton(),
+      _buildFullscreenButton(context),
+    ];
+    if (isCompact) {
+      widgets.add(_buildOverflowButton(context));
+    }
+    return widgets;
+  }
+
+  Widget _buildPlayPauseButton(ThaPlaybackState st) {
+    return IconButton(
+      icon: Icon(
+        st.isPlaying ? Icons.pause : Icons.play_arrow,
+        color: Colors.white,
+      ),
+      onPressed: () {
+        st.isPlaying ? widget.controller.pause() : widget.controller.play();
+        _restartHide();
+      },
+    );
+  }
+
+  Widget _buildQualityButton(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Quality',
+      color: const Color(0xFF1F1F1F),
+      surfaceTintColor: Colors.transparent,
+      icon: Icon(_qualityIcon, color: Colors.white),
+      onOpened: () => _refreshVideoTracks(force: true),
+      onSelected: (v) => unawaited(_onQualitySelected(v)),
+      itemBuilder: _qualityPopupItems,
+    );
+  }
+
+  Widget _buildAudioButton(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Audio',
+      color: const Color(0xFF1F1F1F),
+      surfaceTintColor: Colors.transparent,
+      icon: const Icon(Icons.audiotrack, color: Colors.white),
+      onOpened: () => _refreshAudioTracks(force: true),
+      onSelected: (value) {
+        if (value == '__auto__') {
+          setState(() => _manualAudioId = null);
+          unawaited(widget.controller.selectAudioTrack(null));
+        } else {
+          setState(() => _manualAudioId = value);
+          unawaited(widget.controller.selectAudioTrack(value));
+        }
+        _restartHide();
+      },
+      itemBuilder: _audioPopupItems,
+    );
+  }
+
+  Widget _buildSubtitleButton(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Subtitles',
+      color: const Color(0xFF1F1F1F),
+      surfaceTintColor: Colors.transparent,
+      icon: const Icon(Icons.subtitles, color: Colors.white),
+      onOpened: () => _refreshSubtitleTracks(force: true),
+      onSelected: (value) {
+        if (value == '__off__') {
+          setState(() => _manualSubtitleId = null);
+          unawaited(widget.controller.selectSubtitleTrack(null));
+        } else {
+          setState(() => _manualSubtitleId = value);
+          unawaited(widget.controller.selectSubtitleTrack(value));
+        }
+        _restartHide();
+      },
+      itemBuilder: _subtitlePopupItems,
+    );
+  }
+
+  Widget _buildLockButton() {
+    return IconButton(
+      icon: const Icon(Icons.lock, color: Colors.white),
+      onPressed: () {
+        setState(() {
+          _locked = true;
+          _showControls = false;
+        });
+      },
+    );
+  }
+
+  Widget _buildSpeedButton() {
+    return PopupMenuButton<double>(
+      tooltip: 'Speed',
+      icon: const Icon(Icons.speed, color: Colors.white),
+      onSelected: (s) => widget.controller.setSpeed(s),
+      itemBuilder: _speedPopupItems,
+    );
+  }
+
+  Widget _buildResizeButton(BuildContext context) {
+    return PopupMenuButton<BoxFit>(
+      tooltip: 'Resize',
+      icon: const Icon(Icons.aspect_ratio, color: Colors.white),
+      onSelected: (fit) {
+        _fit.value = fit;
+        widget.controller.setBoxFit(fit);
+        _restartHide();
+      },
+      itemBuilder: _resizePopupItems,
+    );
+  }
+
+  Widget _buildPipButton() {
+    return IconButton(
+      icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+      tooltip: 'Picture-in-picture',
+      onPressed: () {
+        unawaited(
+          widget.controller
+              .enterPictureInPicture()
+              .then((ok) {
+                if (!mounted) return;
+                if (ok) {
+                  _restartHide();
+                } else {
+                  debugPrint('Picture-in-picture is unavailable.');
+                }
+              })
+              .catchError((_) {}),
+        );
+      },
+    );
+  }
+
+  Widget _buildFullscreenButton(BuildContext context) {
+    return IconButton(
+      icon: Icon(
+        widget.isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+        color: Colors.white,
+      ),
+      onPressed: () {
+        if (widget.isFullscreen) {
+          Navigator.of(context).pop();
+        } else {
+          _enterFullscreen();
+        }
+      },
+    );
+  }
+
+  Widget _buildOverflowButton(BuildContext context) {
+    return Builder(
+      builder: (buttonContext) {
+        return PopupMenuButton<_OverflowAction>(
+          tooltip: 'More options',
+          color: const Color(0xFF1F1F1F),
+          surfaceTintColor: Colors.transparent,
+          icon: const Icon(Icons.more_vert, color: Colors.white),
+          onOpened: () {
+            _refreshVideoTracks(force: true);
+            _refreshAudioTracks(force: true);
+            _refreshSubtitleTracks(force: true);
+          },
+          itemBuilder:
+              (c) => [
+                _overflowMenuItem(
+                  _OverflowAction.quality,
+                  Icons.hd_outlined,
+                  'Quality',
+                ),
+                _overflowMenuItem(
+                  _OverflowAction.audio,
+                  Icons.audiotrack,
+                  'Audio',
+                ),
+                _overflowMenuItem(
+                  _OverflowAction.subtitles,
+                  Icons.subtitles,
+                  'Subtitles',
+                ),
+                _overflowMenuItem(_OverflowAction.speed, Icons.speed, 'Speed'),
+                _overflowMenuItem(
+                  _OverflowAction.resize,
+                  Icons.aspect_ratio,
+                  'Resize',
+                ),
+              ],
+          onSelected:
+              (action) =>
+                  unawaited(_handleOverflowAction(buttonContext, action)),
+        );
+      },
+    );
+  }
+
+  PopupMenuItem<_OverflowAction> _overflowMenuItem(
+    _OverflowAction action,
+    IconData icon,
+    String label,
+  ) {
+    return PopupMenuItem(
+      value: action,
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Progress with slider
-          Row(
-            children: [
-              Text(
-                _fmt(st.position),
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-              ),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 2,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
-                    ),
-                  ),
-                  child: Slider(
-                    min: 0,
-                    max: st.duration.inMilliseconds.toDouble().clamp(
-                      1,
-                      double.infinity,
-                    ),
-                    value:
-                        st.position.inMilliseconds
-                            .clamp(0, st.duration.inMilliseconds)
-                            .toDouble(),
-                    onChanged:
-                        (v) => setState(
-                          () => _preview = Duration(milliseconds: v.toInt()),
-                        ),
-                    onChangeEnd: (v) {
-                      widget.controller.seekTo(
-                        Duration(milliseconds: v.toInt()),
-                      );
-                      setState(() => _preview = null);
-                    },
-                  ),
-                ),
-              ),
-              Text(
-                _fmt(st.duration),
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              IconButton(
-                icon: Icon(
-                  st.isPlaying ? Icons.pause : Icons.play_arrow,
-                  color: Colors.white,
-                ),
-                onPressed: () {
-                  st.isPlaying
-                      ? widget.controller.pause()
-                      : widget.controller.play();
-                  _restartHide();
-                },
-              ),
-              const SizedBox(width: 6),
-              PopupMenuButton<String>(
-                tooltip: 'Quality',
-                color: const Color(0xFF1F1F1F),
-                surfaceTintColor: Colors.transparent,
-                icon: Icon(_qualityIcon, color: Colors.white),
-                onOpened: () => _refreshVideoTracks(force: true),
-                onSelected: (v) => unawaited(_onQualitySelected(v)),
-                itemBuilder: (c) {
-                  final items = <PopupMenuEntry<String>>[];
-                  final current = _activeTrack;
-                  final autoSubtitle =
-                      !_dataSaver && current != null && _manualTrackId == null
-                          ? 'Current: ${current.displayLabel}'
-                          : null;
-                  items.add(
-                    PopupMenuItem(
-                      value: 'auto',
-                      child: _qualityMenuRow(
-                        c,
-                        label: 'Auto',
-                        subtitle: autoSubtitle,
-                        selected: !_dataSaver && _manualTrackId == null,
-                      ),
-                    ),
-                  );
-                  items.add(
-                    PopupMenuItem(
-                      value: 'dataSaver',
-                      child: _qualityMenuRow(
-                        c,
-                        label: 'Data Saver',
-                        subtitle: 'Cap ~0.8 Mbps',
-                        selected: _dataSaver,
-                      ),
-                    ),
-                  );
-                  if (_videoTracks.isNotEmpty) {
-                    final sorted = [..._videoTracks]..sort(
-                      (a, b) => (b.bitrate ?? 0).compareTo(a.bitrate ?? 0),
-                    );
-                    items.add(const PopupMenuDivider());
-                    for (final track in sorted) {
-                      items.add(
-                        PopupMenuItem(
-                          value: track.id,
-                          child: _qualityMenuRow(
-                            c,
-                            label: track.displayLabel,
-                            selected: _manualTrackId == track.id,
-                            isPlaying: track.selected,
-                          ),
-                        ),
-                      );
-                    }
-                  } else if (_pendingTrackFetch != null) {
-                    items.add(
-                      const PopupMenuItem<String>(
-                        enabled: false,
-                        value: '__loading__',
-                        child: Text('Loading variants...'),
-                      ),
-                    );
-                  } else {
-                    items.add(
-                      const PopupMenuItem<String>(
-                        enabled: false,
-                        value: '__empty__',
-                        child: Text('No variants reported'),
-                      ),
-                    );
-                  }
-                  return items;
-                },
-              ),
-              const SizedBox(width: 6),
-              PopupMenuButton<String>(
-                tooltip: 'Audio',
-                color: const Color(0xFF1F1F1F),
-                surfaceTintColor: Colors.transparent,
-                icon: const Icon(Icons.audiotrack, color: Colors.white),
-                onOpened: () => _refreshAudioTracks(force: true),
-                onSelected: (value) {
-                  if (value == '__auto__') {
-                    setState(() => _manualAudioId = null);
-                    unawaited(widget.controller.selectAudioTrack(null));
-                  } else {
-                    setState(() => _manualAudioId = value);
-                    unawaited(widget.controller.selectAudioTrack(value));
-                  }
-                  _restartHide();
-                },
-                itemBuilder: (c) {
-                  final items = <PopupMenuEntry<String>>[
-                    PopupMenuItem(
-                      value: '__auto__',
-                      child: _qualityMenuRow(
-                        c,
-                        label: 'Auto',
-                        subtitle: 'Default audio',
-                        selected: _manualAudioId == null,
-                      ),
-                    ),
-                  ];
-                  if (_audioTracks.isNotEmpty) {
-                    items.add(const PopupMenuDivider());
-                    for (final track in _audioTracks) {
-                      items.add(
-                        PopupMenuItem(
-                          value: track.id,
-                          child: _qualityMenuRow(
-                            c,
-                            label: track.label ?? (track.language ?? track.id),
-                            selected:
-                                _manualAudioId == track.id ||
-                                (_manualAudioId == null && track.selected),
-                            isPlaying: track.selected,
-                            subtitle: track.language,
-                          ),
-                        ),
-                      );
-                    }
-                  } else if (_pendingAudioFetch != null) {
-                    items.add(
-                      const PopupMenuItem<String>(
-                        enabled: false,
-                        value: '__loading_audio__',
-                        child: Text('Loading audio tracks...'),
-                      ),
-                    );
-                  }
-                  return items;
-                },
-              ),
-              const SizedBox(width: 6),
-              PopupMenuButton<String>(
-                tooltip: 'Subtitles',
-                color: const Color(0xFF1F1F1F),
-                surfaceTintColor: Colors.transparent,
-                icon: const Icon(Icons.subtitles, color: Colors.white),
-                onOpened: () => _refreshSubtitleTracks(force: true),
-                onSelected: (value) {
-                  if (value == '__off__') {
-                    setState(() => _manualSubtitleId = null);
-                    unawaited(widget.controller.selectSubtitleTrack(null));
-                  } else {
-                    setState(() => _manualSubtitleId = value);
-                    unawaited(widget.controller.selectSubtitleTrack(value));
-                  }
-                  _restartHide();
-                },
-                itemBuilder: (c) {
-                  final items = <PopupMenuEntry<String>>[
-                    PopupMenuItem(
-                      value: '__off__',
-                      child: _qualityMenuRow(
-                        c,
-                        label: 'Subtitles off',
-                        selected: _manualSubtitleId == null,
-                      ),
-                    ),
-                  ];
-                  if (_subtitleTracks.isNotEmpty) {
-                    items.add(const PopupMenuDivider());
-                    for (final track in _subtitleTracks) {
-                      items.add(
-                        PopupMenuItem(
-                          value: track.id,
-                          child: _qualityMenuRow(
-                            c,
-                            label: track.label ?? (track.language ?? track.id),
-                            subtitle: track.language,
-                            selected:
-                                _manualSubtitleId == track.id ||
-                                (_manualSubtitleId == null && track.selected),
-                            isPlaying: track.selected,
-                          ),
-                        ),
-                      );
-                    }
-                  } else if (_pendingSubtitleFetch != null) {
-                    items.add(
-                      const PopupMenuItem<String>(
-                        enabled: false,
-                        value: '__loading_sub__',
-                        child: Text('Loading subtitles...'),
-                      ),
-                    );
-                  }
-                  return items;
-                },
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                icon: const Icon(Icons.lock, color: Colors.white),
-                onPressed: () {
-                  setState(() {
-                    _locked = true;
-                    _showControls = false;
-                  });
-                },
-              ),
-              const SizedBox(width: 6),
-              PopupMenuButton<double>(
-                tooltip: 'Speed',
-                icon: const Icon(Icons.speed, color: Colors.white),
-                onSelected: (s) => widget.controller.setSpeed(s),
-                itemBuilder:
-                    (c) =>
-                        [0.5, 1.0, 1.25, 1.5, 2.0]
-                            .map(
-                              (s) =>
-                                  PopupMenuItem(value: s, child: Text('${s}x')),
-                            )
-                            .toList(),
-              ),
-              const Spacer(),
-              PopupMenuButton<BoxFit>(
-                tooltip: 'Resize',
-                icon: const Icon(Icons.aspect_ratio, color: Colors.white),
-                onSelected: (fit) {
-                  _fit.value = fit;
-                  widget.controller.setBoxFit(fit);
-                  _restartHide();
-                },
-                itemBuilder:
-                    (context) => const [
-                      PopupMenuItem(
-                        value: BoxFit.contain,
-                        child: Text('Contain'),
-                      ),
-                      PopupMenuItem(value: BoxFit.cover, child: Text('Cover')),
-                      PopupMenuItem(value: BoxFit.fill, child: Text('Fill')),
-                      PopupMenuItem(
-                        value: BoxFit.fitWidth,
-                        child: Text('Fit Width'),
-                      ),
-                      PopupMenuItem(
-                        value: BoxFit.fitHeight,
-                        child: Text('Fit Height'),
-                      ),
-                    ],
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                icon: const Icon(
-                  Icons.picture_in_picture_alt,
-                  color: Colors.white,
-                ),
-                tooltip: 'Picture-in-picture',
-                onPressed: () {
-                  unawaited(
-                    widget.controller
-                        .enterPictureInPicture()
-                        .then((ok) {
-                          if (!mounted) return;
-                          if (ok) {
-                            _restartHide();
-                          } else {
-                            debugPrint('Picture-in-picture is unavailable.');
-                          }
-                        })
-                        .catchError((_) {}),
-                  );
-                },
-              ),
-              IconButton(
-                icon: Icon(
-                  widget.isFullscreen
-                      ? Icons.fullscreen_exit
-                      : Icons.fullscreen,
-                  color: Colors.white,
-                ),
-                onPressed: () {
-                  if (widget.isFullscreen) {
-                    Navigator.of(context).pop();
-                  } else {
-                    _enterFullscreen();
-                  }
-                },
-              ),
-            ],
-          ),
+          Icon(icon, color: Colors.white70, size: 18),
+          const SizedBox(width: 10),
+          Text(label, style: const TextStyle(color: Colors.white)),
         ],
       ),
     );
+  }
+
+  Future<void> _handleOverflowAction(
+    BuildContext anchorContext,
+    _OverflowAction action,
+  ) async {
+    if (!mounted) return;
+    final menuPosition = _menuPositionFor(anchorContext);
+    switch (action) {
+      case _OverflowAction.quality:
+        _refreshVideoTracks(force: true);
+        final pendingVideo = _pendingTrackFetch;
+        if (pendingVideo != null) {
+          try {
+            await pendingVideo;
+          } catch (_) {}
+        }
+        if (!mounted) return;
+        final quality = await _showAnchoredMenu<String>(
+          menuPosition,
+          _qualityPopupItems(context),
+        );
+        if (quality != null) {
+          await _onQualitySelected(quality);
+        }
+        break;
+      case _OverflowAction.audio:
+        _refreshAudioTracks(force: true);
+        final pendingAudio = _pendingAudioFetch;
+        if (pendingAudio != null) {
+          try {
+            await pendingAudio;
+          } catch (_) {}
+        }
+        if (!mounted) return;
+        final audio = await _showAnchoredMenu<String>(
+          menuPosition,
+          _audioPopupItems(context),
+        );
+        if (audio != null) {
+          if (audio == '__auto__') {
+            setState(() => _manualAudioId = null);
+            await widget.controller.selectAudioTrack(null);
+          } else {
+            setState(() => _manualAudioId = audio);
+            await widget.controller.selectAudioTrack(audio);
+          }
+        }
+        break;
+      case _OverflowAction.subtitles:
+        _refreshSubtitleTracks(force: true);
+        final pendingSub = _pendingSubtitleFetch;
+        if (pendingSub != null) {
+          try {
+            await pendingSub;
+          } catch (_) {}
+        }
+        if (!mounted) return;
+        final subtitle = await _showAnchoredMenu<String>(
+          menuPosition,
+          _subtitlePopupItems(context),
+        );
+        if (subtitle != null) {
+          if (subtitle == '__off__') {
+            setState(() => _manualSubtitleId = null);
+            await widget.controller.selectSubtitleTrack(null);
+          } else {
+            setState(() => _manualSubtitleId = subtitle);
+            await widget.controller.selectSubtitleTrack(subtitle);
+          }
+        }
+        break;
+      case _OverflowAction.speed:
+        final speed = await _showAnchoredMenu<double>(
+          menuPosition,
+          _speedPopupItems(context),
+        );
+        if (speed != null) {
+          await widget.controller.setSpeed(speed);
+        }
+        break;
+      case _OverflowAction.resize:
+        final fit = await _showAnchoredMenu<BoxFit>(
+          menuPosition,
+          _resizePopupItems(context),
+        );
+        if (fit != null) {
+          _fit.value = fit;
+          await widget.controller.setBoxFit(fit);
+        }
+        break;
+    }
+    if (!mounted) return;
+    _restartHide();
+  }
+
+  Future<T?> _showAnchoredMenu<T>(
+    RelativeRect position,
+    List<PopupMenuEntry<T>> items,
+  ) {
+    if (items.isEmpty || !mounted) return Future.value(null);
+    return showMenu<T>(
+      context: context,
+      position: position,
+      color: const Color(0xFF1F1F1F),
+      items: items,
+    );
+  }
+
+  RelativeRect _menuPositionFor(BuildContext anchorContext) {
+    final renderBox = anchorContext.findRenderObject() as RenderBox?;
+    final overlayState = Overlay.of(anchorContext);
+    final overlay = overlayState.context.findRenderObject() as RenderBox?;
+    if (overlay == null) {
+      return const RelativeRect.fromLTRB(0, 0, 0, 0);
+    }
+    if (renderBox == null) {
+      return RelativeRect.fromLTRB(
+        overlay.size.width * 0.5,
+        overlay.size.height * 0.5,
+        overlay.size.width * 0.5,
+        overlay.size.height * 0.5,
+      );
+    }
+    return RelativeRect.fromRect(
+      Rect.fromPoints(
+        renderBox.localToGlobal(Offset.zero, ancestor: overlay),
+        renderBox.localToGlobal(
+          renderBox.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
+      ),
+      Offset.zero & overlay.size,
+    );
+  }
+
+  List<PopupMenuEntry<String>> _qualityPopupItems(BuildContext context) {
+    final items = <PopupMenuEntry<String>>[];
+    final current = _activeTrack;
+    final autoSubtitle =
+        !_dataSaver && current != null && _manualTrackId == null
+            ? 'Current: ${current.displayLabel}'
+            : null;
+    items.add(
+      PopupMenuItem(
+        value: 'auto',
+        child: _qualityMenuRow(
+          context,
+          label: 'Auto',
+          subtitle: autoSubtitle,
+          selected: !_dataSaver && _manualTrackId == null,
+        ),
+      ),
+    );
+    items.add(
+      PopupMenuItem(
+        value: 'dataSaver',
+        child: _qualityMenuRow(
+          context,
+          label: 'Data Saver',
+          subtitle: 'Cap ~0.8 Mbps',
+          selected: _dataSaver,
+        ),
+      ),
+    );
+    if (_videoTracks.isNotEmpty) {
+      final sorted = [..._videoTracks]
+        ..sort((a, b) => (b.bitrate ?? 0).compareTo(a.bitrate ?? 0));
+      items.add(const PopupMenuDivider());
+      for (final track in sorted) {
+        items.add(
+          PopupMenuItem(
+            value: track.id,
+            child: _qualityMenuRow(
+              context,
+              label: track.displayLabel,
+              selected: _manualTrackId == track.id,
+              isPlaying: track.selected,
+            ),
+          ),
+        );
+      }
+    } else if (_pendingTrackFetch != null) {
+      items.add(
+        const PopupMenuItem<String>(
+          enabled: false,
+          value: '__loading__',
+          child: Text('Loading variants...'),
+        ),
+      );
+    } else {
+      items.add(
+        const PopupMenuItem<String>(
+          enabled: false,
+          value: '__empty__',
+          child: Text('No variants reported'),
+        ),
+      );
+    }
+    return items;
+  }
+
+  List<PopupMenuEntry<String>> _audioPopupItems(BuildContext context) {
+    final items = <PopupMenuEntry<String>>[
+      PopupMenuItem(
+        value: '__auto__',
+        child: _qualityMenuRow(
+          context,
+          label: 'Auto',
+          subtitle: 'Default audio',
+          selected: _manualAudioId == null,
+        ),
+      ),
+    ];
+    if (_audioTracks.isNotEmpty) {
+      items.add(const PopupMenuDivider());
+      for (final track in _audioTracks) {
+        items.add(
+          PopupMenuItem(
+            value: track.id,
+            child: _qualityMenuRow(
+              context,
+              label: track.label ?? (track.language ?? track.id),
+              subtitle: track.language,
+              selected:
+                  _manualAudioId == track.id ||
+                  (_manualAudioId == null && track.selected),
+              isPlaying: track.selected,
+            ),
+          ),
+        );
+      }
+    } else if (_pendingAudioFetch != null) {
+      items.add(
+        const PopupMenuItem<String>(
+          enabled: false,
+          value: '__loading_audio__',
+          child: Text('Loading audio tracks...'),
+        ),
+      );
+    }
+    return items;
+  }
+
+  List<PopupMenuEntry<String>> _subtitlePopupItems(BuildContext context) {
+    final items = <PopupMenuEntry<String>>[
+      PopupMenuItem(
+        value: '__off__',
+        child: _qualityMenuRow(
+          context,
+          label: 'Subtitles off',
+          selected: _manualSubtitleId == null,
+        ),
+      ),
+    ];
+    if (_subtitleTracks.isNotEmpty) {
+      items.add(const PopupMenuDivider());
+      for (final track in _subtitleTracks) {
+        items.add(
+          PopupMenuItem(
+            value: track.id,
+            child: _qualityMenuRow(
+              context,
+              label: track.label ?? (track.language ?? track.id),
+              subtitle: track.language,
+              selected:
+                  _manualSubtitleId == track.id ||
+                  (_manualSubtitleId == null && track.selected),
+              isPlaying: track.selected,
+            ),
+          ),
+        );
+      }
+    } else if (_pendingSubtitleFetch != null) {
+      items.add(
+        const PopupMenuItem<String>(
+          enabled: false,
+          value: '__loading_sub__',
+          child: Text('Loading subtitles...'),
+        ),
+      );
+    }
+    return items;
+  }
+
+  List<PopupMenuEntry<double>> _speedPopupItems(BuildContext context) {
+    return [0.5, 1.0, 1.25, 1.5, 2.0]
+        .map((s) => PopupMenuItem<double>(value: s, child: Text('${s}x')))
+        .toList();
+  }
+
+  List<PopupMenuEntry<BoxFit>> _resizePopupItems(BuildContext context) {
+    return const [
+      PopupMenuItem(value: BoxFit.contain, child: Text('Contain')),
+      PopupMenuItem(value: BoxFit.cover, child: Text('Cover')),
+      PopupMenuItem(value: BoxFit.fill, child: Text('Fill')),
+      PopupMenuItem(value: BoxFit.fitWidth, child: Text('Fit Width')),
+      PopupMenuItem(value: BoxFit.fitHeight, child: Text('Fit Height')),
+    ];
   }
 
   String _fmt(Duration d) {
@@ -1286,3 +1547,5 @@ class _VerticalSlider extends StatelessWidget {
     );
   }
 }
+
+enum _OverflowAction { quality, audio, subtitles, speed, resize }

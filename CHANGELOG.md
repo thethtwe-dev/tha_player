@@ -1,3 +1,8 @@
+## 0.3.1
+
+- Normal Player overflow bug fix
+- Player controls duplicate issues fix
+
 ## 0.3.0
 
 - Added optional `autoFullscreen` flag to `ThaModernPlayer` with sample toggle

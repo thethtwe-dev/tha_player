@@ -37,7 +37,7 @@ import java.util.Locale
 import android.util.Rational
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
-import kotlin.math.min
+import java.lang.ref.WeakReference
 
 class ThaPlayerPlatformView(
   context: Context,
@@ -47,49 +47,69 @@ class ThaPlayerPlatformView(
 ) : PlatformView {
   private val container: FrameLayout = FrameLayout(context)
   private val playerView: PlayerView = PlayerView(context)
-  private val player: ExoPlayer = ExoPlayer.Builder(context).build()
   private val channel: MethodChannel = MethodChannel(messenger, "thaplayer/view_${viewId}")
   private val eventChannel: EventChannel = EventChannel(messenger, "thaplayer/events_${viewId}")
   private val mainHandler = Handler(Looper.getMainLooper())
   private var eventsSink: EventChannel.EventSink? = null
   private var progressRunnable: Runnable? = null
+  private val controllerId: Long =
+    (args?.get("controllerId") as? Number)?.toLong() ?: viewId.toLong()
   private val playbackOptions: PlaybackOptions
-  private val mediaSession: MediaSessionCompat
+  private val sharedEntry: SharedPlayerEntry
+  private val player: ExoPlayer
 
   init {
     container.addView(playerView, FrameLayout.LayoutParams(
       FrameLayout.LayoutParams.MATCH_PARENT,
       FrameLayout.LayoutParams.MATCH_PARENT
     ))
-    playerView.player = player
+    playbackOptions = PlaybackOptions.fromMap(args?.get("playbackOptions") as? Map<*, *>)
+    sharedEntry = SharedPlayerRegistry.acquire(context, controllerId, playbackOptions, args)
+    player = sharedEntry.player
+    sharedEntry.attachView(playerView)
     playerView.useController = false
     playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-    playerView.keepScreenOn = true
-
-    playbackOptions = PlaybackOptions.fromMap(args?.get("playbackOptions") as? Map<*, *>)
-
-    setupFromArgs(args)
-
-    mediaSession = MediaSessionCompat(context, "ThaPlayer_$viewId").apply {
-      setCallback(object : MediaSessionCompat.Callback() {
-        override fun onPlay() {
-          player.play()
-        }
-
-        override fun onPause() {
-          player.pause()
-        }
-      })
-      isActive = true
-    }
 
     channel.setMethodCallHandler { call, result ->
       when (call.method) {
-        "play" -> { player.play(); result.success(null) }
-        "pause" -> { player.pause(); result.success(null) }
+        "play" -> {
+          if (sharedEntry.hasRenderedFirstFrame) {
+            sharedEntry.pendingPlayOnceReady = false
+            restoreAudio()
+            player.play()
+          } else {
+            sharedEntry.pendingPlayOnceReady = true
+            player.playWhenReady = false
+            suppressAudio()
+            if (player.playbackState == Player.STATE_READY) {
+              scheduleReadyFallback()
+            }
+          }
+          result.success(null)
+        }
+        "pause" -> {
+          sharedEntry.pendingPlayOnceReady = false
+          cancelReadyFallback()
+          restoreAudio()
+          player.pause()
+          result.success(null)
+        }
         "seekTo" -> {
           val ms = (call.argument<Int>("millis") ?: 0).toLong()
+          val wasPlaying = sharedEntry.pendingPlayOnceReady || player.isPlaying || player.playWhenReady
+          sharedEntry.pendingPlayOnceReady = wasPlaying
+          sharedEntry.hasRenderedFirstFrame = false
+          cancelReadyFallback()
+          if (wasPlaying) {
+            player.playWhenReady = false
+            suppressAudio()
+          } else {
+            restoreAudio()
+          }
           player.seekTo(ms)
+          if (!wasPlaying) {
+            player.pause()
+          }
           result.success(null)
         }
         "setSpeed" -> {
@@ -115,8 +135,17 @@ class ThaPlayerPlatformView(
         }
         "retry" -> {
           try {
+            val shouldAutoPlay = sharedEntry.pendingPlayOnceReady || player.playWhenReady || player.isPlaying
+            sharedEntry.pendingPlayOnceReady = shouldAutoPlay
+            sharedEntry.hasRenderedFirstFrame = false
+            cancelReadyFallback()
+            player.playWhenReady = false
+            suppressAudio()
             player.prepare()
-            player.play()
+            if (!shouldAutoPlay) {
+              player.pause()
+              restoreAudio()
+            }
             result.success(null)
           } catch (e: Exception) {
             result.error("RETRY_FAILED", e.message, null)
@@ -166,9 +195,53 @@ class ThaPlayerPlatformView(
           "isPlaying" to false,
           "error" to (error.errorCodeName ?: (error.message ?: "Playback error"))
         ))
+        cancelReadyFallback()
+        sharedEntry.pendingPlayOnceReady = false
+        restoreAudio()
       }
-      override fun onIsPlayingChanged(isPlaying: Boolean) { sendPlaybackEvent() }
-      override fun onPlaybackStateChanged(playbackState: Int) { sendPlaybackEvent() }
+
+      override fun onIsPlayingChanged(isPlaying: Boolean) {
+        if (!isPlaying && player.playbackState != Player.STATE_BUFFERING) {
+          cancelReadyFallback()
+        }
+        sendPlaybackEvent()
+      }
+
+      override fun onPlaybackStateChanged(playbackState: Int) {
+        when (playbackState) {
+          Player.STATE_BUFFERING -> {
+            if (!sharedEntry.hasRenderedFirstFrame && sharedEntry.pendingPlayOnceReady) {
+              suppressAudio()
+            }
+          }
+          Player.STATE_READY -> {
+            if (sharedEntry.hasRenderedFirstFrame) {
+              restoreAudio()
+              maybeStartPlayback()
+            } else {
+              scheduleReadyFallback()
+            }
+          }
+          Player.STATE_ENDED -> {
+            sharedEntry.pendingPlayOnceReady = false
+            cancelReadyFallback()
+            restoreAudio()
+          }
+          Player.STATE_IDLE -> {
+            sharedEntry.hasRenderedFirstFrame = false
+            cancelReadyFallback()
+            restoreAudio()
+          }
+        }
+        sendPlaybackEvent()
+      }
+
+      override fun onRenderedFirstFrame() {
+        sharedEntry.hasRenderedFirstFrame = true
+        cancelReadyFallback()
+        restoreAudio()
+        maybeStartPlayback()
+      }
     })
 
     eventChannel.setStreamHandler(object: EventChannel.StreamHandler {
@@ -183,100 +256,17 @@ class ThaPlayerPlatformView(
     })
   }
 
-  private fun setupFromArgs(args: Map<*, *>?) {
-    val autoPlay = args?.get("autoPlay") as? Boolean ?: true
-    val loop = args?.get("loop") as? Boolean ?: false
-    val playlist = args?.get("playlist") as? List<*>
-    val startMs = (args?.get("startPositionMs") as? Int ?: 0).toLong()
-    val startAutoPlay = args?.get("startAutoPlay") as? Boolean ?: autoPlay
-    val dataSaver = args?.get("dataSaver") as? Boolean ?: false
-
-    val items = mutableListOf<MediaSource>()
-    playlist?.forEach { entryAny ->
-      val entry = entryAny as? Map<*, *> ?: return@forEach
-      val url = entry["url"] as? String ?: return@forEach
-      val headers = (entry["headers"] as? Map<*, *>)?.mapNotNull { (k, v) ->
-        if (k is String && v is String) k to v else null
-      }?.toMap() ?: emptyMap()
-      val drmMap = entry["drm"] as? Map<*, *>
-
-      val builder = MediaItem.Builder().setUri(Uri.parse(url))
-      // DRM
-
-      drmMap?.let {
-        val type = (it["type"] as? String)?.lowercase()
-        val licenseUrl = it["licenseUrl"] as? String
-        val contentId = it["contentId"] as? String
-        val clearKeyJson = it["clearKey"] as? String
-        val drmHeaders = (it["headers"] as? Map<*, *>)?.mapNotNull { (k, v) ->
-          if (k is String && v is String) k to v else null
-        }?.toMap() ?: emptyMap()
-        when (type) {
-          "widevine" -> {
-            if (licenseUrl != null) {
-              val drmBuilder = MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
-              drmBuilder.setLicenseUri(licenseUrl)
-              val reqHeaders = mutableMapOf<String, String>()
-              if (contentId != null) reqHeaders["Content-ID"] = contentId
-              if (drmHeaders.isNotEmpty()) reqHeaders.putAll(drmHeaders)
-              if (reqHeaders.isNotEmpty()) drmBuilder.setLicenseRequestHeaders(reqHeaders)
-              builder.setDrmConfiguration(drmBuilder.build())
-            }
-          }
-          "clearkey" -> {
-            val drmBuilder = MediaItem.DrmConfiguration.Builder(C.CLEARKEY_UUID)
-            // If clearKey JSON provided, pass via data URI
-            if (clearKeyJson != null) {
-              val b64 = Base64.encodeToString(clearKeyJson.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-              drmBuilder.setLicenseUri("data:application/json;base64,$b64")
-            } else if (licenseUrl != null) {
-              drmBuilder.setLicenseUri(licenseUrl)
-            }
-            if (drmHeaders.isNotEmpty()) {
-              drmBuilder.setLicenseRequestHeaders(drmHeaders)
-            }
-            builder.setDrmConfiguration(drmBuilder.build())
-          }
-        }
-      }
-      val isLive = entry["isLive"] as? Boolean ?: false
-      if (isLive) {
-        val live = MediaItem.LiveConfiguration.Builder()
-          .setTargetOffsetMs(3000)
-          .setMinPlaybackSpeed(0.97f)
-          .setMaxPlaybackSpeed(1.03f)
-          .build()
-        builder.setLiveConfiguration(live)
-      }
-      val mediaItem = builder.build()
-      // Per-item headers via OkHttpDataSource
-      val okClient = ThaPlayerHttpClientProvider.obtainClient()
-      val httpFactory: DataSource.Factory = OkHttpDataSource.Factory(okClient)
-        .setDefaultRequestProperties(headers)
-      val msFactory = DefaultMediaSourceFactory(httpFactory)
-        .setLoadErrorHandlingPolicy(
-          ConfigurableLoadErrorPolicy(playbackOptions)
-        )
-      val mediaSource = msFactory.createMediaSource(mediaItem)
-      items.add(mediaSource)
-    }
-
-    player.setMediaSources(items)
-    player.prepare()
-    player.repeatMode = if (loop) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
-    if (startMs > 0L) player.seekTo(startMs)
-    applyDataSaver(dataSaver)
-    if (startAutoPlay) player.play() else player.pause()
-  }
-
   override fun getView(): View = container
 
   override fun dispose() {
-    playerView.player = null
-    playerView.keepScreenOn = false
-    player.release()
+    val isCurrentSurface = sharedEntry.attachedView?.get() === playerView
+    if (isCurrentSurface) {
+      cancelReadyFallback()
+      restoreAudio()
+      sharedEntry.pendingPlayOnceReady = false
+    }
     stopProgress()
-    mediaSession.release()
+    SharedPlayerRegistry.release(controllerId, playerView)
   }
 
   private fun startProgress() {
@@ -311,14 +301,7 @@ class ThaPlayerPlatformView(
   }
 
   private fun applyDataSaver(enable: Boolean) {
-    val builder = player.trackSelectionParameters.buildUpon()
-    if (enable) {
-      builder.clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-      builder.setMaxVideoBitrate(800_000) // ~0.8 Mbps cap
-    } else {
-      builder.setMaxVideoBitrate(Int.MAX_VALUE)
-    }
-    player.trackSelectionParameters = builder.build()
+    sharedEntry.applyDataSaverInternal(enable)
   }
 
   private fun updateMediaSessionState(isPlaying: Boolean, isBuffering: Boolean) {
@@ -336,7 +319,41 @@ class ThaPlayerPlatformView(
       )
       .setState(state, position, if (isPlaying) player.playbackParameters.speed else 0f)
       .build()
-    mediaSession.setPlaybackState(playbackState)
+    sharedEntry.mediaSession.setPlaybackState(playbackState)
+  }
+
+  private fun suppressAudio() {
+    sharedEntry.suppressAudioInternal()
+  }
+
+  private fun restoreAudio() {
+    sharedEntry.restoreAudioInternal()
+  }
+
+  private fun scheduleReadyFallback() {
+    if (sharedEntry.hasRenderedFirstFrame || sharedEntry.pendingPlayOnceReady.not()) return
+    if (sharedEntry.readyFallbackRunnable != null) return
+    val runnable = Runnable {
+      sharedEntry.readyFallbackRunnable = null
+      if (!sharedEntry.hasRenderedFirstFrame) {
+        restoreAudio()
+        maybeStartPlayback(force = true)
+      }
+    }
+    sharedEntry.readyFallbackRunnable = runnable
+    sharedEntry.handler.postDelayed(runnable, 700)
+  }
+
+  private fun cancelReadyFallback() {
+    sharedEntry.readyFallbackRunnable?.let(sharedEntry.handler::removeCallbacks)
+    sharedEntry.readyFallbackRunnable = null
+  }
+
+  private fun maybeStartPlayback(force: Boolean = false) {
+    if (!sharedEntry.pendingPlayOnceReady) return
+    if (!sharedEntry.hasRenderedFirstFrame && !force) return
+    sharedEntry.pendingPlayOnceReady = false
+    player.play()
   }
 
   private fun collectVideoTracks(): List<Map<String, Any?>> {
@@ -578,4 +595,241 @@ private class ConfigurableLoadErrorPolicy(
   override fun getMinimumLoadableRetryCount(dataType: Int): Int {
     return if (options.maxRetryCount >= 0) options.maxRetryCount else super.getMinimumLoadableRetryCount(dataType)
   }
+}
+private data class SharedPlayerEntry(
+  val controllerId: Long,
+  val player: ExoPlayer,
+  val mediaSession: MediaSessionCompat,
+  val handler: Handler,
+  var refs: Int = 0,
+  var initialized: Boolean = false,
+  var playbackOptions: PlaybackOptions,
+  var pendingPlayOnceReady: Boolean = false,
+  var hasRenderedFirstFrame: Boolean = false,
+  var audioSuppressed: Boolean = false,
+  var storedVolume: Float = 1f,
+  var readyFallbackRunnable: Runnable? = null,
+  var attachedView: WeakReference<PlayerView?>? = null,
+  val viewRefs: MutableList<WeakReference<PlayerView>> = mutableListOf(),
+)
+
+private object SharedPlayerRegistry {
+  private val entries = mutableMapOf<Long, SharedPlayerEntry>()
+
+  fun acquire(
+    context: Context,
+    controllerId: Long,
+    options: PlaybackOptions,
+    args: Map<*, *>?,
+  ): SharedPlayerEntry {
+    val existing = entries[controllerId]
+    return if (existing != null) {
+      existing.refs += 1
+      existing.playbackOptions = options
+      existing.mediaSession.isActive = true
+      existing.ensureInitialized(context, args)
+      existing
+    } else {
+      val player = ExoPlayer.Builder(context).build()
+      val mediaSession = MediaSessionCompat(context, "ThaPlayer_$controllerId").apply {
+        setCallback(object : MediaSessionCompat.Callback() {
+          override fun onPlay() { player.play() }
+          override fun onPause() { player.pause() }
+        })
+        isActive = true
+      }
+      val entry = SharedPlayerEntry(
+        controllerId = controllerId,
+        player = player,
+        mediaSession = mediaSession,
+        handler = Handler(Looper.getMainLooper()),
+        refs = 1,
+        playbackOptions = options,
+      )
+      entries[controllerId] = entry
+      entry.ensureInitialized(context, args)
+      entry
+    }
+  }
+
+  fun release(controllerId: Long, view: PlayerView) {
+    val entry = entries[controllerId] ?: return
+    entry.detachView(view)
+    entry.refs -= 1
+    if (entry.refs <= 0) {
+      entry.readyFallbackRunnable?.let(entry.handler::removeCallbacks)
+      entry.attachedView?.get()?.let {
+        it.player = null
+        it.keepScreenOn = false
+      }
+      entry.attachedView = null
+      entry.mediaSession.isActive = false
+      entry.mediaSession.release()
+      entry.player.release()
+      entries.remove(controllerId)
+    }
+  }
+}
+
+private fun SharedPlayerEntry.attachView(view: PlayerView) {
+  // Remove stale references and duplicates for this view
+  viewRefs.removeAll { ref ->
+    val existing = ref.get()
+    existing == null || existing === view
+  }
+  // Detach current, if different
+  val current = attachedView?.get()
+  if (current != null && current !== view) {
+    current.player = null
+    current.keepScreenOn = false
+  }
+  viewRefs.add(WeakReference(view))
+  attachedView = WeakReference(view)
+  view.player = player
+  view.keepScreenOn = true
+}
+
+private fun SharedPlayerEntry.detachView(view: PlayerView) {
+  viewRefs.removeAll { ref ->
+    val existing = ref.get()
+    existing == null || existing === view
+  }
+  if (attachedView?.get() === view) {
+    val fallback = viewRefs.lastOrNull { it.get() != null }?.get()
+    attachedView = fallback?.let { WeakReference(it) }
+    fallback?.let {
+      it.player = player
+      it.keepScreenOn = true
+    } ?: run {
+      attachedView = null
+    }
+  }
+  view.player = null
+  view.keepScreenOn = false
+}
+
+private fun SharedPlayerEntry.suppressAudioInternal() {
+  if (audioSuppressed) return
+  storedVolume = player.volume
+  player.volume = 0f
+  audioSuppressed = true
+}
+
+private fun SharedPlayerEntry.restoreAudioInternal() {
+  if (!audioSuppressed) return
+  player.volume = storedVolume
+  audioSuppressed = false
+}
+
+private fun SharedPlayerEntry.ensureInitialized(
+  context: Context,
+  args: Map<*, *>?,
+) {
+  if (initialized) return
+  val autoPlay = args?.get("autoPlay") as? Boolean ?: true
+  val loop = args?.get("loop") as? Boolean ?: false
+  val playlist = args?.get("playlist") as? List<*>
+  val startMs = (args?.get("startPositionMs") as? Int ?: 0).toLong()
+  val startAutoPlay = args?.get("startAutoPlay") as? Boolean ?: autoPlay
+  val dataSaver = args?.get("dataSaver") as? Boolean ?: false
+
+  val items = mutableListOf<MediaSource>()
+  playlist?.forEach { entryAny ->
+    val entry = entryAny as? Map<*, *> ?: return@forEach
+    val url = entry["url"] as? String ?: return@forEach
+    val headers = (entry["headers"] as? Map<*, *>)?.mapNotNull { (k, v) ->
+      if (k is String && v is String) k to v else null
+    }?.toMap() ?: emptyMap()
+    val drmMap = entry["drm"] as? Map<*, *>
+
+    val builder = MediaItem.Builder().setUri(Uri.parse(url))
+
+    drmMap?.let {
+      val type = (it["type"] as? String)?.lowercase()
+      val licenseUrl = it["licenseUrl"] as? String
+      val contentId = it["contentId"] as? String
+      val clearKeyJson = it["clearKey"] as? String
+      val drmHeaders = (it["headers"] as? Map<*, *>)?.mapNotNull { (k, v) ->
+        if (k is String && v is String) k to v else null
+      }?.toMap() ?: emptyMap()
+      when (type) {
+        "widevine" -> {
+          if (licenseUrl != null) {
+            val drmBuilder = MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
+            drmBuilder.setLicenseUri(licenseUrl)
+            val reqHeaders = mutableMapOf<String, String>()
+            if (contentId != null) reqHeaders["Content-ID"] = contentId
+            if (drmHeaders.isNotEmpty()) reqHeaders.putAll(drmHeaders)
+            if (reqHeaders.isNotEmpty()) drmBuilder.setLicenseRequestHeaders(reqHeaders)
+            builder.setDrmConfiguration(drmBuilder.build())
+          }
+        }
+        "clearkey" -> {
+          val drmBuilder = MediaItem.DrmConfiguration.Builder(C.CLEARKEY_UUID)
+          if (clearKeyJson != null) {
+            val b64 = Base64.encodeToString(clearKeyJson.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            drmBuilder.setLicenseUri("data:application/json;base64,$b64")
+          } else if (licenseUrl != null) {
+            drmBuilder.setLicenseUri(licenseUrl)
+          }
+          if (drmHeaders.isNotEmpty()) {
+            drmBuilder.setLicenseRequestHeaders(drmHeaders)
+          }
+          builder.setDrmConfiguration(drmBuilder.build())
+        }
+      }
+    }
+
+    val isLive = entry["isLive"] as? Boolean ?: false
+    if (isLive) {
+      val live = MediaItem.LiveConfiguration.Builder()
+        .setTargetOffsetMs(3000)
+        .setMinPlaybackSpeed(0.97f)
+        .setMaxPlaybackSpeed(1.03f)
+        .build()
+      builder.setLiveConfiguration(live)
+    }
+
+    val mediaItem = builder.build()
+    val okClient = ThaPlayerHttpClientProvider.obtainClient()
+    val httpFactory: DataSource.Factory = OkHttpDataSource.Factory(okClient)
+      .setDefaultRequestProperties(headers)
+    val msFactory = DefaultMediaSourceFactory(httpFactory)
+      .setLoadErrorHandlingPolicy(
+        ConfigurableLoadErrorPolicy(playbackOptions)
+      )
+    val mediaSource = msFactory.createMediaSource(mediaItem)
+    items.add(mediaSource)
+  }
+
+  pendingPlayOnceReady = startAutoPlay
+  hasRenderedFirstFrame = false
+  readyFallbackRunnable?.let(handler::removeCallbacks)
+  readyFallbackRunnable = null
+  player.playWhenReady = false
+  suppressAudioInternal()
+
+  player.setMediaSources(items)
+  player.prepare()
+  player.repeatMode = if (loop) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
+  if (startMs > 0L) player.seekTo(startMs)
+  applyDataSaverInternal(dataSaver)
+
+  if (!startAutoPlay) {
+    player.pause()
+    restoreAudioInternal()
+  }
+
+  initialized = true
+}
+
+private fun SharedPlayerEntry.applyDataSaverInternal(enable: Boolean) {
+  val builder = player.trackSelectionParameters.buildUpon()
+  if (enable) {
+    builder.clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+    builder.setMaxVideoBitrate(800_000)
+  } else {
+    builder.setMaxVideoBitrate(Int.MAX_VALUE)
+  }
+  player.trackSelectionParameters = builder.build()
 }

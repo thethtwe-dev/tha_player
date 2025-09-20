@@ -17,6 +17,8 @@ class ThaNativePlayerController {
   final bool autoPlay;
   final bool loop;
   final ThaPlaybackOptions playbackOptions;
+  static int _nextControllerId = 1;
+  final int _controllerId;
   MethodChannel? _channel;
   ThaNativeEvents? _events;
   int _resumePositionMs = 0;
@@ -30,7 +32,8 @@ class ThaNativePlayerController {
     this.autoPlay = true,
     this.loop = false,
     this.playbackOptions = const ThaPlaybackOptions(),
-  }) : playlist = [source] {
+  })  : playlist = [source],
+        _controllerId = _nextControllerId++ {
     _wasPlaying = autoPlay;
   }
 
@@ -40,7 +43,7 @@ class ThaNativePlayerController {
     this.autoPlay = true,
     this.loop = false,
     this.playbackOptions = const ThaPlaybackOptions(),
-  }) {
+  }) : _controllerId = _nextControllerId++ {
     _wasPlaying = autoPlay;
   }
 
@@ -52,6 +55,7 @@ class ThaNativePlayerController {
     'startAutoPlay': _wasPlaying,
     'dataSaver': _dataSaver,
     'playbackOptions': playbackOptions.toMap(),
+    'controllerId': _controllerId,
     'playlist':
         playlist
             .map(
