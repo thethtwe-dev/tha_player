@@ -8,9 +8,10 @@ Native, network‑only video player for Flutter with modern MX/VLC‑style UX. A
 
 - ✅ Native engines: ExoPlayer (Android) and AVPlayer (iOS)
 - ✅ Gestures: tap to show/hide, double‑tap seek, horizontal scrub, vertical volume/brightness
-- ✅ Controls: play/pause, speed, fullscreen, lock, BoxFit (contain/cover/fill/fitWidth/fitHeight)
-- ✅ Thumbnails: WebVTT sprites or image sequences during seek preview
-- ✅ Buffering indicator and keep‑screen‑on while playing
+- ✅ Controls: play/pause, speed, fullscreen (manual or auto), lock, BoxFit (contain/cover/fill/fitWidth/fitHeight)
+- ✅ Quality, audio, and subtitle track selection with data saver toggle
+- ✅ Configurable retry/backoff, error callbacks, PiP playback controls
+- ✅ Thumbnails: WebVTT sprites or image sequences during seek preview (cached in-memory)
 - ✅ DRM (Android): Widevine and ClearKey
 - ✅ M3U playlist parsing utility
 - ✅ Overlay support (watermark, logos)
@@ -23,7 +24,7 @@ Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  tha_player: ^0.2.0
+  tha_player: ^0.3.0
 ```
 
 Then:
@@ -44,6 +45,10 @@ final ctrl = ThaNativePlayerController.single(
     // thumbnailVttUrl: 'https://example.com/thumbs.vtt',
   ),
   autoPlay: true,
+  playbackOptions: ThaPlaybackOptions(
+    maxRetryCount: 5,
+    initialRetryDelay: Duration(milliseconds: 800),
+  ),
 );
 
 // In build:
@@ -63,6 +68,17 @@ Tap the fullscreen icon in the control bar. Playback position and state are pres
 
 ### BoxFit
 Choose between `contain`, `cover`, `fill`, `fitWidth`, and `fitHeight` from the menu.
+
+### Track Selection
+Use the control bar to switch quality, audio, or subtitle tracks at runtime. You can also fetch tracks directly:
+
+```
+final qualities = await ctrl.getVideoTracks();
+final audios = await ctrl.getAudioTracks();
+final subtitles = await ctrl.getSubtitleTracks();
+await ctrl.selectAudioTrack(audios.first.id);
+await ctrl.selectSubtitleTrack(null); // disable captions
+```
 
 ### Lock Controls
 Use the lock icon to prevent controls/gestures; unlock with the floating button.
@@ -101,6 +117,34 @@ ThaMediaSource(
 - iOS: AVPlayer backend; `fitWidth`/`fitHeight` approximate via `resizeAspect`.
 - Keep‑screen‑on is enabled during playback (Android/iOS).
 - Playability depends on device codecs, stream, and network.
+
+Thumbnails are cached in-memory. Call `clearThumbnailCache()` if you need to purge the cache.
+
+### Resilient playback
+
+`ThaPlaybackOptions` lets you tweak retry/backoff behaviour and rebuffer handling. Failures are surfaced via `ThaNativeEvents.error` and the `onError` callback on `ThaModernPlayer`.
+
+### Custom HTTP (Android)
+
+Provide a bespoke `OkHttpClient` to inject interceptors or caching:
+
+Register the factory inside your Android `Application`:
+
+```kotlin
+class App : FlutterApplication() {
+  override fun onCreate() {
+    super.onCreate()
+    ThaPlayerPlugin.setHttpClientFactory {
+      OkHttpClient.Builder()
+        .addInterceptor(MyHeaderInterceptor())
+        .cache(Cache(cacheDir.resolve("video"), 100L * 1024L * 1024L))
+        .build()
+    }
+  }
+}
+```
+
+Set the factory before creating any Flutter controllers so every instance shares the same client.
 
 ### 16 KB Page Size Support
 This plugin does not ship custom native decoder binaries. If you add native libraries, link them with a max page size compatible with 16 KB systems (e.g., `-Wl,-z,max-page-size=16384` on Android NDK).

@@ -11,17 +11,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tha_player_example/main.dart';
 
 void main() {
-  testWidgets('Verify Platform version', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('renders home screen controls', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
 
-    // Verify that platform version is retrieved.
-    expect(
-      find.byWidgetPredicate(
-        (Widget widget) =>
-            widget is Text && widget.data!.startsWith('Running on:'),
-      ),
-      findsOneWidget,
+    expect(find.text('tha_player'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('Play Now'), findsOneWidget);
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://example.com/video.mp4',
     );
+    await tester.tap(find.text('Play Now'));
+    await tester.pump();
+
+    expect(find.text('Player Screen'), findsOneWidget);
   });
 }

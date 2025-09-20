@@ -24,10 +24,20 @@ class ThumbCue {
   bool get hasCrop => x != null && y != null && w != null && h != null;
 }
 
+final _thumbCache = <String, List<ThumbCue>>{};
+
+/// Clears the in-memory thumbnail cache.
+void clearThumbnailCache() => _thumbCache.clear();
+
 Future<List<ThumbCue>> fetchVttThumbnails(
   String url, {
   Map<String, String>? headers,
+  bool cache = true,
 }) async {
+  final cacheKey = _cacheKey(url, headers);
+  if (cache && _thumbCache.containsKey(cacheKey)) {
+    return _thumbCache[cacheKey]!;
+  }
   final client = HttpClient();
   final req = await client.getUrl(Uri.parse(url));
   headers?.forEach((k, v) => req.headers.set(k, v));
@@ -36,7 +46,26 @@ Future<List<ThumbCue>> fetchVttThumbnails(
     throw StateError('Failed to fetch thumbnails VTT: HTTP ${resp.statusCode}');
   }
   final text = await utf8.decodeStream(resp);
-  return parseWebVtt(text, base: Uri.parse(url));
+  final cues = parseWebVtt(text, base: Uri.parse(url));
+  if (cache) {
+    _thumbCache[cacheKey] = cues;
+  }
+  return cues;
+}
+
+String _cacheKey(String url, Map<String, String>? headers) {
+  if (headers == null || headers.isEmpty) return url;
+  final sorted =
+      headers.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+  final buffer = StringBuffer(url);
+  for (final entry in sorted) {
+    buffer
+      ..write('|')
+      ..write(entry.key)
+      ..write('=')
+      ..write(entry.value);
+  }
+  return buffer.toString();
 }
 
 List<ThumbCue> parseWebVtt(String input, {Uri? base}) {

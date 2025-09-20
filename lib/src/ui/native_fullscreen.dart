@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../platform/native_player_controller.dart';
 import 'modern_player.dart';
 
+/// Fullscreen route that reuses the underlying controller.
 class ThaNativeFullscreenPage extends StatefulWidget {
   final ThaNativePlayerController controller;
   final ValueNotifier<BoxFit> boxFitNotifier;
@@ -53,6 +54,7 @@ class _ThaNativeFullscreenPageState extends State<ThaNativeFullscreenPage> {
           controller: widget.controller,
           overlay: widget.overlay,
           isFullscreen: true,
+          autoFullscreen: false,
         ),
       ),
     );

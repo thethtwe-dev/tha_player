@@ -5,10 +5,10 @@
 Pod::Spec.new do |s|
   s.name             = 'tha_player'
   s.version          = '0.2.0'
-  s.summary          = 'Powerful network-only player for Flutter (DRM on Android, VLC on iOS).'
+  s.summary          = 'Powerful network-only player for Flutter (ExoPlayer on Android, AVPlayer on iOS).'
   s.description      = <<-DESC
 Unified network player with M3U playlists, MKV/HLS/DASH, 4K.
-Uses ExoPlayer via Better Player on Android and VLC on iOS.
+Uses ExoPlayer on Android and AVPlayer on iOS.
                        DESC
   s.homepage         = 'https://github.com/thethtwe-dev/tha_player'
   s.license          = { :file => '../LICENSE' }

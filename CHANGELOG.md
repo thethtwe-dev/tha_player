@@ -1,3 +1,14 @@
+## 0.3.0
+
+- Added optional `autoFullscreen` flag to `ThaModernPlayer` with sample toggle
+- Fixed autoplay regression when jumping straight into fullscreen
+- Exposed reusable fullscreen helper to keep inline + fullscreen UIs in sync
+- Returned normalised brightness/volume levels for gesture overlays
+- Added video/audio/subtitle track selection APIs and richer control-bar menus
+- Provided shared OkHttp client hook, configurable retry/backoff, and PiP media session controls (Android / iOS)
+- Expanded Dartdoc coverage across core public API
+- Updated documentation and example app controls
+
 ## 0.0.2
 
 - Initial release

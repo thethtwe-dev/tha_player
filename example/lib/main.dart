@@ -31,6 +31,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   TextEditingController controller = TextEditingController();
+  bool _isLive = false;
+  bool _autoFullscreen = false;
 
   @override
   Widget build(BuildContext context) {
@@ -47,12 +49,29 @@ class _HomePageState extends State<HomePage> {
               decoration: InputDecoration(hintText: 'Insert Playable Url'),
             ),
 
+            SwitchListTile(
+              title: const Text('Is Live (HLS)'),
+              value: _isLive,
+              onChanged: (v) => setState(() => _isLive = v),
+            ),
+
+            SwitchListTile(
+              title: const Text('Start in Fullscreen'),
+              value: _autoFullscreen,
+              onChanged: (v) => setState(() => _autoFullscreen = v),
+            ),
+
             ElevatedButton.icon(
               onPressed: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (c) => PlayerScreen(url: controller.text),
+                    builder:
+                        (c) => PlayerScreen(
+                          url: controller.text,
+                          isLive: _isLive,
+                          autoFullscreen: _autoFullscreen,
+                        ),
                   ),
                 );
               },

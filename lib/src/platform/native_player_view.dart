@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 
 import 'native_player_controller.dart';
 
+/// Wraps the Android/iOS platform view that renders the native video surface.
 class ThaNativePlayerView extends StatefulWidget {
   final ThaNativePlayerController controller;
   final Widget? overlay;

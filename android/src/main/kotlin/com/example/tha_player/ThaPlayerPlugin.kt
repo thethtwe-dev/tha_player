@@ -10,11 +10,26 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMessageCodec
+import okhttp3.OkHttpClient
+import java.lang.ref.WeakReference
 
 class ThaPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware {
   private lateinit var channel: MethodChannel
   private lateinit var context: Context
   private var activity: Activity? = null
+
+  companion object {
+    @Volatile
+    private var activityRef: WeakReference<Activity?> = WeakReference(null)
+
+    @JvmStatic
+    fun setHttpClientFactory(factory: (() -> OkHttpClient)?) {
+      ThaPlayerHttpClientProvider.setFactory(factory)
+    }
+
+    @JvmStatic
+    internal fun currentActivity(): Activity? = activityRef.get()
+  }
 
   override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
     channel = MethodChannel(binding.binaryMessenger, "thaplayer/channel")
@@ -34,18 +49,22 @@ class ThaPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
 
   override fun onAttachedToActivity(binding: ActivityPluginBinding) {
     activity = binding.activity
+    activityRef = WeakReference(activity)
   }
 
   override fun onDetachedFromActivity() {
     activity = null
+    activityRef = WeakReference(null)
   }
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
     activity = binding.activity
+    activityRef = WeakReference(activity)
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
     activity = null
+    activityRef = WeakReference(null)
   }
 
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -57,17 +76,23 @@ class ThaPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val newVol = (current + delta * max).toInt().coerceIn(0, max)
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
-        result.success(null)
+        val normalized = if (max > 0) newVol.toDouble() / max else 0.0
+        result.success(normalized)
       }
       "setBrightness" -> {
         val delta = call.argument<Double>("value")?.toFloat() ?: 0f
         val window = activity?.window
         if (window != null) {
           val attributes = window.attributes
-          val newBrightness = (attributes.screenBrightness + delta).coerceIn(0.01f, 1.0f)
+          val currentBrightness = if (attributes.screenBrightness >= 0f) {
+            attributes.screenBrightness
+          } else {
+            0.5f
+          }
+          val newBrightness = (currentBrightness + delta).coerceIn(0.01f, 1.0f)
           attributes.screenBrightness = newBrightness
           window.attributes = attributes
-          result.success(null)
+          result.success(newBrightness.toDouble())
         } else {
           result.error("NO_ACTIVITY", "Activity is null", null)
         }

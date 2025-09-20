@@ -2,4 +2,7 @@
   package="com.example.tha_player">
   <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
   <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-feature
+    android:name="android.software.picture_in_picture"
+    android:required="false"/>
 </manifest>

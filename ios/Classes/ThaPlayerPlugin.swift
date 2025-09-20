@@ -33,7 +33,7 @@ public class ThaPlayerPlugin: NSObject, FlutterPlugin {
       if newValue < 0.01 { newValue = 0.01 }
       if newValue > 1.0 { newValue = 1.0 }
       UIScreen.main.brightness = newValue
-      result(nil)
+      result(Double(newValue))
     case "setVolume":
       guard let args = call.arguments as? [String: Any], let delta = args["value"] as? Double else {
         result(FlutterError(code: "ARG_ERROR", message: "Missing value for setVolume", details: nil))
@@ -46,10 +46,10 @@ public class ThaPlayerPlugin: NSObject, FlutterPlugin {
         var newVal = current + Float(delta)
         if newVal < 0.0 { newVal = 0.0 }
         if newVal > 1.0 { newVal = 1.0 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+        DispatchQueue.main.async {
           slider.value = newVal
+          result(Double(slider.value))
         }
-        result(nil)
       } else {
         result(FlutterError(code: "NO_SLIDER", message: "Failed to access volume slider", details: nil))
       }

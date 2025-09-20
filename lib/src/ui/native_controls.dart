@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../platform/native_player_controller.dart';
 import 'native_fullscreen.dart';
 
+/// Minimal control bar that forwards commands straight to the native player.
 class ThaNativeControls extends StatelessWidget {
   final ThaNativePlayerController controller;
   final ValueNotifier<BoxFit> boxFitNotifier;
