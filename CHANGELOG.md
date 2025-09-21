@@ -1,3 +1,10 @@
+## 0.4.0
+
+- Added MX Player–style long-press seeking with configurable `longPressSeek` interval
+- Improved seek overlays for double-tap/hold gestures (consistent flash, formatting)
+- Replaced BoxFit popup with a compact dialog grid that clearly marks the active fit
+- Removed fullscreen SafeArea gutters so video truly fills edge-to-edge
+
 ## 0.3.1
 
 - Normal Player overflow bug fix

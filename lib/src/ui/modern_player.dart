@@ -13,6 +13,7 @@ class ThaModernPlayer extends StatefulWidget {
   final ThaNativePlayerController controller;
   final Widget? overlay;
   final Duration doubleTapSeek;
+  final Duration longPressSeek;
   final Duration autoHideAfter;
   final BoxFit initialBoxFit;
   final bool startLocked;
@@ -26,6 +27,7 @@ class ThaModernPlayer extends StatefulWidget {
     required this.controller,
     this.overlay,
     this.doubleTapSeek = const Duration(seconds: 10),
+    this.longPressSeek = const Duration(seconds: 3),
     this.autoHideAfter = const Duration(seconds: 3),
     this.initialBoxFit = BoxFit.contain,
     this.startLocked = false,
@@ -40,6 +42,15 @@ class ThaModernPlayer extends StatefulWidget {
 }
 
 class _ThaModernPlayerState extends State<ThaModernPlayer> {
+  static const Duration _longPressTick = Duration(milliseconds: 200);
+  static const List<BoxFit> _boxFitChoices = <BoxFit>[
+    BoxFit.contain,
+    BoxFit.cover,
+    BoxFit.fill,
+    BoxFit.fitWidth,
+    BoxFit.fitHeight,
+  ];
+  static const double _dialogCornerRadius = 5;
   late final ValueNotifier<BoxFit> _fit = ValueNotifier(widget.initialBoxFit);
   bool _showControls = true;
   Timer? _hide;
@@ -55,6 +66,11 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
   Timer? _lockHintTimer;
   String? _seekFlash;
   Alignment _seekFlashAlign = Alignment.center;
+  Timer? _seekFlashTimer;
+  Timer? _seekRepeat;
+  Duration _longPressAccumulated = Duration.zero;
+  Duration? _longPressTarget;
+  int _longPressDirection = 0;
   List<ThumbCue>? _thumbs;
   bool _thumbsLoading = false;
   bool _dataSaver = false;
@@ -86,6 +102,8 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
   @override
   void dispose() {
     _hide?.cancel();
+    _seekRepeat?.cancel();
+    _seekFlashTimer?.cancel();
     _fit.dispose();
     super.dispose();
   }
@@ -188,6 +206,151 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     } finally {
       if (mounted) setState(() => _thumbsLoading = false);
     }
+  }
+
+  void _showSeekFlash(String text, Alignment alignment, {Duration? hideAfter}) {
+    _seekFlashTimer?.cancel();
+    _seekFlashTimer = null;
+    if (!mounted) {
+      _seekFlash = text;
+      _seekFlashAlign = alignment;
+      return;
+    }
+    setState(() {
+      _seekFlash = text;
+      _seekFlashAlign = alignment;
+    });
+    if (hideAfter != null) {
+      _seekFlashTimer = Timer(hideAfter, () {
+        if (!mounted) return;
+        setState(() => _seekFlash = null);
+      });
+    } else {
+      _seekFlashTimer = null;
+    }
+  }
+
+  void _hideSeekFlash() {
+    _seekFlashTimer?.cancel();
+    _seekFlashTimer = null;
+    if (!mounted) {
+      _seekFlash = null;
+      return;
+    }
+    if (_seekFlash != null) {
+      setState(() => _seekFlash = null);
+    }
+  }
+
+  void _startLongPressSeek({required bool forward}) {
+    final events = _events;
+    if (events == null) return;
+    final state = events.state.value;
+    if (state.duration.inMilliseconds <= 0) return;
+    _seekRepeat?.cancel();
+    _seekFlashTimer?.cancel();
+    _longPressDirection = forward ? 1 : -1;
+    _longPressAccumulated = Duration.zero;
+    _longPressTarget = state.position;
+    _applyLongPressSeek();
+    _seekRepeat = Timer.periodic(_longPressTick, (_) => _applyLongPressSeek());
+    _restartHide();
+  }
+
+  void _updateLongPressDirection({required bool forward}) {
+    final newDirection = forward ? 1 : -1;
+    if (_seekRepeat == null || _longPressDirection == newDirection) {
+      return;
+    }
+    _longPressDirection = newDirection;
+    _longPressAccumulated = Duration.zero;
+    final events = _events;
+    _longPressTarget = events?.state.value.position;
+  }
+
+  void _applyLongPressSeek() {
+    final events = _events;
+    if (events == null) return;
+    if (_longPressDirection == 0) return;
+    final state = events.state.value;
+    final duration = state.duration;
+    if (duration.inMilliseconds <= 0) {
+      _stopLongPressSeek(animateHide: false);
+      return;
+    }
+    final step = widget.longPressSeek;
+    if (step.inMilliseconds <= 0) return;
+    final base = _longPressTarget ?? state.position;
+    final delta = _longPressDirection < 0 ? -step : step;
+    final target = _clampDuration(base + delta, Duration.zero, duration);
+    final actual = target - base;
+    if (actual.inMilliseconds == 0) {
+      final label =
+          '${_longPressDirection < 0 ? '-' : '+'}${_formatSeekValue(_longPressAccumulated)}s';
+      _showSeekFlash(
+        label,
+        _longPressDirection < 0 ? Alignment.centerLeft : Alignment.centerRight,
+      );
+      return;
+    }
+    _longPressTarget = target;
+    widget.controller.seekTo(target);
+    _longPressAccumulated += _absDuration(actual);
+    final label =
+        '${_longPressDirection < 0 ? '-' : '+'}${_formatSeekValue(_longPressAccumulated)}s';
+    _showSeekFlash(
+      label,
+      _longPressDirection < 0 ? Alignment.centerLeft : Alignment.centerRight,
+    );
+  }
+
+  void _stopLongPressSeek({bool animateHide = true}) {
+    final direction = _longPressDirection;
+    final accumulated = _longPressAccumulated;
+    _seekRepeat?.cancel();
+    _seekRepeat = null;
+    _longPressTarget = null;
+    _longPressDirection = 0;
+    _longPressAccumulated = Duration.zero;
+    if (!animateHide) {
+      _hideSeekFlash();
+      _restartHide();
+      return;
+    }
+    if (accumulated.inMilliseconds <= 0) {
+      _hideSeekFlash();
+      _restartHide();
+      return;
+    }
+    final label =
+        '${direction < 0 ? '-' : '+'}${_formatSeekValue(accumulated)}s';
+    _showSeekFlash(
+      label,
+      direction < 0 ? Alignment.centerLeft : Alignment.centerRight,
+      hideAfter: const Duration(milliseconds: 600),
+    );
+    _restartHide();
+  }
+
+  Duration _clampDuration(Duration value, Duration min, Duration max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  }
+
+  Duration _absDuration(Duration value) {
+    return value.isNegative ? -value : value;
+  }
+
+  String _formatSeekValue(Duration value) {
+    final ms = value.inMilliseconds.abs();
+    if (ms == 0) return '0';
+    if (ms % 1000 == 0) {
+      return (ms ~/ 1000).toString();
+    }
+    final seconds = ms / 1000;
+    final fixed = seconds.toStringAsFixed(1);
+    return fixed.endsWith('.0') ? fixed.substring(0, fixed.length - 2) : fixed;
   }
 
   void _refreshVideoTracks({bool force = false}) {
@@ -407,18 +570,15 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                   t < Duration.zero
                       ? Duration.zero
                       : (t > st.duration ? st.duration : t);
+              _stopLongPressSeek(animateHide: false);
               widget.controller.seekTo(target);
-              _seekFlash =
-                  "${delta.isNegative ? '-' : '+'}${widget.doubleTapSeek.inSeconds}s";
-              _seekFlashAlign =
-                  left ? Alignment.centerLeft : Alignment.centerRight;
-              setState(() {});
-              Timer(const Duration(milliseconds: 600), () {
-                if (!mounted) return;
-                setState(() {
-                  _seekFlash = null;
-                });
-              });
+              final text =
+                  "${delta.isNegative ? '-' : '+'}${_formatSeekValue(widget.doubleTapSeek)}s";
+              _showSeekFlash(
+                text,
+                left ? Alignment.centerLeft : Alignment.centerRight,
+                hideAfter: const Duration(milliseconds: 600),
+              );
             } else {
               st.isPlaying
                   ? widget.controller.pause()
@@ -457,6 +617,26 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
               widget.controller.seekTo(_preview!);
               setState(() => _preview = null);
             }
+          },
+          onLongPressStart: (details) {
+            if (_locked) return;
+            if (st.duration.inMilliseconds <= 0) return;
+            final width = context.size?.width ?? 0;
+            final forward = details.localPosition.dx > width / 2;
+            _startLongPressSeek(forward: forward);
+          },
+          onLongPressMoveUpdate: (details) {
+            if (_locked || _seekRepeat == null) return;
+            final width = context.size?.width ?? 0;
+            final forward = details.localPosition.dx > width / 2;
+            _updateLongPressDirection(forward: forward);
+          },
+          onLongPressEnd: (_) {
+            if (_locked) return;
+            _stopLongPressSeek();
+          },
+          onLongPressCancel: () {
+            _stopLongPressSeek(animateHide: false);
           },
           onVerticalDragUpdate: (d) async {
             if (_locked) {
@@ -556,18 +736,15 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                           t < Duration.zero
                               ? Duration.zero
                               : (t > st.duration ? st.duration : t);
+                      _stopLongPressSeek(animateHide: false);
                       widget.controller.seekTo(target);
-                      _seekFlash =
-                          "${delta.isNegative ? '-' : '+'}${widget.doubleTapSeek.inSeconds}s";
-                      _seekFlashAlign =
-                          left ? Alignment.centerLeft : Alignment.centerRight;
-                      setState(() {});
-                      Timer(const Duration(milliseconds: 600), () {
-                        if (!mounted) return;
-                        setState(() {
-                          _seekFlash = null;
-                        });
-                      });
+                      final text =
+                          "${delta.isNegative ? '-' : '+'}${_formatSeekValue(widget.doubleTapSeek)}s";
+                      _showSeekFlash(
+                        text,
+                        left ? Alignment.centerLeft : Alignment.centerRight,
+                        hideAfter: const Duration(milliseconds: 600),
+                      );
                     } else {
                       st.isPlaying
                           ? widget.controller.pause()
@@ -622,6 +799,29 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                       widget.controller.seekTo(_preview!);
                       setState(() => _preview = null);
                     }
+                  },
+                  onLongPressStart: (details) {
+                    if (_locked) return;
+                    final st = _events?.state.value;
+                    if (st == null || st.duration.inMilliseconds <= 0) return;
+                    final box = context.findRenderObject() as RenderBox?;
+                    final width = box?.size.width ?? 0;
+                    final forward = details.localPosition.dx > width / 2;
+                    _startLongPressSeek(forward: forward);
+                  },
+                  onLongPressMoveUpdate: (details) {
+                    if (_locked || _seekRepeat == null) return;
+                    final box = context.findRenderObject() as RenderBox?;
+                    final width = box?.size.width ?? 0;
+                    final forward = details.localPosition.dx > width / 2;
+                    _updateLongPressDirection(forward: forward);
+                  },
+                  onLongPressEnd: (_) {
+                    if (_locked) return;
+                    _stopLongPressSeek();
+                  },
+                  onLongPressCancel: () {
+                    _stopLongPressSeek(animateHide: false);
                   },
                   onVerticalDragUpdate: (d) async {
                     if (_locked) {
@@ -1044,15 +1244,17 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
   }
 
   Widget _buildResizeButton(BuildContext context) {
-    return PopupMenuButton<BoxFit>(
+    return IconButton(
       tooltip: 'Resize',
       icon: const Icon(Icons.aspect_ratio, color: Colors.white),
-      onSelected: (fit) {
+      onPressed: () async {
+        final fit = await _showBoxFitDialog();
+        if (fit == null) return;
         _fit.value = fit;
-        widget.controller.setBoxFit(fit);
+        await widget.controller.setBoxFit(fit);
+        if (!mounted) return;
         _restartHide();
       },
-      itemBuilder: _resizePopupItems,
     );
   }
 
@@ -1237,10 +1439,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
         }
         break;
       case _OverflowAction.resize:
-        final fit = await _showAnchoredMenu<BoxFit>(
-          menuPosition,
-          _resizePopupItems(context),
-        );
+        final fit = await _showBoxFitDialog();
         if (fit != null) {
           _fit.value = fit;
           await widget.controller.setBoxFit(fit);
@@ -1446,14 +1645,133 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
         .toList();
   }
 
-  List<PopupMenuEntry<BoxFit>> _resizePopupItems(BuildContext context) {
-    return const [
-      PopupMenuItem(value: BoxFit.contain, child: Text('Contain')),
-      PopupMenuItem(value: BoxFit.cover, child: Text('Cover')),
-      PopupMenuItem(value: BoxFit.fill, child: Text('Fill')),
-      PopupMenuItem(value: BoxFit.fitWidth, child: Text('Fit Width')),
-      PopupMenuItem(value: BoxFit.fitHeight, child: Text('Fit Height')),
-    ];
+  Future<BoxFit?> _showBoxFitDialog() {
+    if (!mounted) return Future.value(null);
+    final current = _fit.value;
+    return showDialog<BoxFit>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1F1F1F),
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_dialogCornerRadius),
+          ),
+          title: const Text('Resize', style: TextStyle(color: Colors.white)),
+          contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+          content: SingleChildScrollView(
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children:
+                  _boxFitChoices.map((fit) {
+                    final isSelected = fit == current;
+                    final label = _boxFitLabel(fit);
+                    final icon = _boxFitIcon(fit);
+                    final borderColor =
+                        isSelected ? Colors.white : Colors.white24;
+                    final background =
+                        isSelected
+                            ? const Color.fromRGBO(255, 255, 255, 0.18)
+                            : const Color.fromRGBO(255, 255, 255, 0.04);
+                    return SizedBox(
+                      width: 88,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(
+                            _dialogCornerRadius,
+                          ),
+                          onTap: () => Navigator.of(dialogContext).pop(fit),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: background,
+                              borderRadius: BorderRadius.circular(
+                                _dialogCornerRadius,
+                              ),
+                              border: Border.all(
+                                color: borderColor,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(icon, color: Colors.white, size: 26),
+                                const SizedBox(height: 6),
+                                Text(
+                                  label,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight:
+                                        isSelected
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _boxFitLabel(BoxFit fit) {
+    switch (fit) {
+      case BoxFit.contain:
+        return 'Contain';
+      case BoxFit.cover:
+        return 'Cover';
+      case BoxFit.fill:
+        return 'Fill';
+      case BoxFit.fitWidth:
+        return 'Fit Width';
+      case BoxFit.fitHeight:
+        return 'Fit Height';
+      case BoxFit.none:
+        return 'None';
+      case BoxFit.scaleDown:
+        return 'Scale Down';
+    }
+  }
+
+  IconData _boxFitIcon(BoxFit fit) {
+    switch (fit) {
+      case BoxFit.contain:
+        return Icons.fit_screen;
+      case BoxFit.cover:
+        return Icons.crop_original;
+      case BoxFit.fill:
+        return Icons.aspect_ratio;
+      case BoxFit.fitWidth:
+        return Icons.swap_horiz;
+      case BoxFit.fitHeight:
+        return Icons.swap_vert;
+      case BoxFit.none:
+        return Icons.crop_free;
+      case BoxFit.scaleDown:
+        return Icons.compress;
+    }
   }
 
   String _fmt(Duration d) {

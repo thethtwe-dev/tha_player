@@ -7,7 +7,7 @@ Native, network‑only video player for Flutter with modern MX/VLC‑style UX. A
 ## ✨ Features
 
 - ✅ Native engines: ExoPlayer (Android) and AVPlayer (iOS)
-- ✅ Gestures: tap to show/hide, double‑tap seek, horizontal scrub, vertical volume/brightness
+- ✅ Gestures: tap to show/hide, double‑tap seek, long‑press skip, horizontal scrub, vertical volume/brightness
 - ✅ Controls: play/pause, speed, fullscreen (manual or auto), lock, BoxFit (contain/cover/fill/fitWidth/fitHeight)
 - ✅ Quality, audio, and subtitle track selection with data saver toggle
 - ✅ Configurable retry/backoff, error callbacks, PiP playback controls
@@ -24,7 +24,7 @@ Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  tha_player: ^0.3.1
+  tha_player: ^0.4.0
 ```
 
 Then:
@@ -57,6 +57,7 @@ AspectRatio(
   child: ThaModernPlayer(
     controller: ctrl,
     doubleTapSeek: Duration(seconds: 10),
+    longPressSeek: Duration(seconds: 3),
     autoHideAfter: Duration(seconds: 3),
     initialBoxFit: BoxFit.contain,
   ),

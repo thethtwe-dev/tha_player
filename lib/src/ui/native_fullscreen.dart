@@ -50,6 +50,8 @@ class _ThaNativeFullscreenPageState extends State<ThaNativeFullscreenPage> {
       body: SafeArea(
         top: false,
         bottom: false,
+        left: false,
+        right: false,
         child: ThaModernPlayer(
           controller: widget.controller,
           overlay: widget.overlay,
