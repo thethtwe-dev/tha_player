@@ -1,3 +1,9 @@
+## 0.4.1
+
+- Modern player quick actions now sit in a tidy wrap along the top-left, keeping the progress and transport controls anchored to the bottom without overlap
+- Rebuilt the transport row around a larger play toggle with consistent skip chips and picture-in-picture/fullscreen buttons
+- Added a press-and-hold speed boost (2×) with visual speed badges in menus and chips, plus refreshed control styling for a cleaner transparent overlay
+
 ## 0.4.0
 
 - Added MX Player–style long-press seeking with configurable `longPressSeek` interval
