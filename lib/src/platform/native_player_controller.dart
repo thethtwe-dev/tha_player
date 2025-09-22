@@ -32,8 +32,8 @@ class ThaNativePlayerController {
     this.autoPlay = true,
     this.loop = false,
     this.playbackOptions = const ThaPlaybackOptions(),
-  })  : playlist = [source],
-        _controllerId = _nextControllerId++ {
+  }) : playlist = [source],
+       _controllerId = _nextControllerId++ {
     _wasPlaying = autoPlay;
   }
 
