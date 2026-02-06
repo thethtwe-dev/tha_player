@@ -85,70 +85,93 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Player Screen')),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: ThaModernPlayer(
-                controller: controller,
-                autoFullscreen: widget.autoFullscreen,
-                onErrorDetails: (error) {
-                  if (error != null) {
-                    debugPrint(
-                      'Playback error: ${error.code} • ${error.message}',
-                    );
-                  }
-                },
-                overlay: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.play_circle_fill,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'THA Player',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        shadows: [Shadow(color: Colors.black, blurRadius: 4)],
-                      ),
-                    ),
-                    if (widget.isLive) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          const aspectRatio = 16 / 9;
+          const statusHeight = 44.0;
+          const statusSpacing = 12.0;
+          final maxWidth = constraints.maxWidth;
+          final maxHeight = constraints.maxHeight;
+          final minPlayerHeight = maxHeight - statusHeight - statusSpacing;
+          final allowStatus = minPlayerHeight > 0;
+          final usableHeight = allowStatus ? minPlayerHeight : maxHeight;
+
+          var playerWidth = maxWidth;
+          var playerHeight = playerWidth / aspectRatio;
+          if (playerHeight > usableHeight) {
+            playerHeight = usableHeight;
+            playerWidth = playerHeight * aspectRatio;
+          }
+
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: playerWidth,
+                  height: playerHeight,
+                  child: ThaModernPlayer(
+                    controller: controller,
+                    autoFullscreen: widget.autoFullscreen,
+                    onErrorDetails: (error) {
+                      if (error != null) {
+                        debugPrint(
+                          'Playback error: ${error.code} • ${error.message}',
+                        );
+                      }
+                    },
+                    overlay: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.play_circle_fill,
+                          color: Colors.white,
+                          size: 18,
                         ),
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'LIVE',
+                        const SizedBox(width: 6),
+                        const Text(
+                          'THA Player',
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 10,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
+                            shadows: [Shadow(color: Colors.black, blurRadius: 4)],
                           ),
                         ),
-                      ),
-                    ],
-                  ],
+                        if (widget.isLive) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'LIVE',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                if (allowStatus) ...[
+                  const SizedBox(height: statusSpacing),
+                  _buildStatus(),
+                  _buildErrorBanner(),
+                ],
+              ],
             ),
-            const SizedBox(height: 12),
-            _buildStatus(),
-            _buildErrorBanner(),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

@@ -1124,10 +1124,11 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isShortHeight = constraints.maxHeight < 230;
+        final isNarrowWidth = constraints.maxWidth < 360;
         final circleSize = isShortHeight ? 44.0 : _circleControlSize;
-        final playDiameter = isShortHeight ? 60.0 : 70.0;
-        final circleSpacing = isShortHeight ? 12.0 : 16.0;
-        final verticalGap = isShortHeight ? 12.0 : 18.0;
+        final playDiameter = isShortHeight || isNarrowWidth ? 60.0 : 70.0;
+        final circleSpacing = isShortHeight || isNarrowWidth ? 12.0 : 16.0;
+        final verticalGap = isShortHeight || isNarrowWidth ? 12.0 : 18.0;
         final circleControls = _buildCircleControls(context, circleSize);
 
         return Container(
@@ -1160,6 +1161,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                 circleSize,
                 playDiameter,
                 isShortHeight,
+                constraints.maxWidth,
               ),
             ],
           ),
@@ -1228,30 +1230,38 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     double circleSize,
     double playDiameter,
     bool isShortHeight,
+    double maxWidth,
   ) {
     final skipBack = _buildSeekButton(st, -widget.doubleTapSeek, circleSize);
     final skipForward = _buildSeekButton(st, widget.doubleTapSeek, circleSize);
-    final centerGap = isShortHeight ? 16.0 : 20.0;
+    final centerGap = isShortHeight || maxWidth < 360 ? 12.0 : 20.0;
+    final showPip = maxWidth >= 360;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         _buildLockButton(circleSize),
         SizedBox(width: isShortHeight ? 8 : 12),
         Expanded(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              skipBack,
-              SizedBox(width: centerGap),
-              _buildPlayPauseButton(st, diameter: playDiameter),
-              SizedBox(width: centerGap),
-              skipForward,
-            ],
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                skipBack,
+                SizedBox(width: centerGap),
+                _buildPlayPauseButton(st, diameter: playDiameter),
+                SizedBox(width: centerGap),
+                skipForward,
+              ],
+            ),
           ),
         ),
         SizedBox(width: isShortHeight ? 8 : 12),
-        _buildPipButton(circleSize),
-        const SizedBox(width: 8),
+        if (showPip) ...[
+          _buildPipButton(circleSize),
+          const SizedBox(width: 8),
+        ],
         _buildFullscreenButton(context, circleSize),
       ],
     );
