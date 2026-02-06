@@ -1,3 +1,11 @@
+## 0.5.1
+
+- Fixed iOS build errors around AVURLAsset HTTP header options and media selection APIs
+- Prevented transport control overflow on narrow widths
+- Improved example layout to avoid vertical overflow when toggling fullscreen
+- Updated SDK constraints to Dart 3.10.4 / Flutter 3.38.5
+- Excluded local logs from publish artifacts
+
 ## 0.5.0
 
 - Persist playback preferences (speed, quality, audio, subtitles, data saver) on the controller for seamless fullscreen swaps

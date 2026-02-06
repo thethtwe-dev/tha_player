@@ -25,7 +25,7 @@ Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  tha_player: ^0.5.0
+  tha_player: ^0.5.1
 ```
 
 Then:
