@@ -1258,10 +1258,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
           ),
         ),
         SizedBox(width: isShortHeight ? 8 : 12),
-        if (showPip) ...[
-          _buildPipButton(circleSize),
-          const SizedBox(width: 8),
-        ],
+        if (showPip) ...[_buildPipButton(circleSize), const SizedBox(width: 8)],
         _buildFullscreenButton(context, circleSize),
       ],
     );

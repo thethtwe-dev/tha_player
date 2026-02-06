@@ -135,7 +135,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             color: Colors.white,
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                            shadows: [
+                              Shadow(color: Colors.black, blurRadius: 4),
+                            ],
                           ),
                         ),
                         if (widget.isLive) ...[
