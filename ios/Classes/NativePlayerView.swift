@@ -12,6 +12,7 @@ class PlayerContainerView: UIView {
 }
 
 class NativePlayerView: NSObject, FlutterPlatformView {
+  private static let httpHeaderFieldsKey = "AVURLAssetHTTPHeaderFieldsKey"
   private let container: PlayerContainerView
   private let player = AVPlayer()
   private let playerLayer = AVPlayerLayer()
@@ -187,10 +188,16 @@ class NativePlayerView: NSObject, FlutterPlatformView {
       var headers: [String: String]? = nil
       if let h = first["headers"] as? [String: Any] {
         var map: [String: String] = [:]
-        for (k, v) in h { if let ks = k as? String, let vs = v as? String { map[ks] = vs } }
+        for (k, v) in h {
+          if let vs = v as? String {
+            map[k] = vs
+          }
+        }
         if !map.isEmpty { headers = map }
       }
-      let options: [String: Any]? = (headers != nil) ? [AVURLAssetHTTPHeaderFieldsKey: headers!] : nil
+      let options: [String: Any]? = (headers != nil)
+        ? [Self.httpHeaderFieldsKey: headers!]
+        : nil
       let asset = AVURLAsset(url: url, options: options)
       let item = AVPlayerItem(asset: asset)
       self.lastUrl = url
@@ -337,7 +344,9 @@ class NativePlayerView: NSObject, FlutterPlatformView {
 
   private func executeRetry() -> Bool {
     guard let url = lastUrl else { return false }
-    let options: [String: Any]? = (lastHeaders != nil) ? [AVURLAssetHTTPHeaderFieldsKey: lastHeaders!] : nil
+    let options: [String: Any]? = (lastHeaders != nil)
+      ? [Self.httpHeaderFieldsKey: lastHeaders!]
+      : nil
     let asset = AVURLAsset(url: url, options: options)
     let item = AVPlayerItem(asset: asset)
     player.replaceCurrentItem(with: item)
@@ -345,12 +354,12 @@ class NativePlayerView: NSObject, FlutterPlatformView {
       item.preferredPeakBitRate = manual
     }
     if let audioId = manualAudioId,
-       let group = asset.mediaSelectionGroup(for: .audible),
+       let group = asset.mediaSelectionGroup(forMediaCharacteristic: .audible),
        let option = mediaOption(for: audioId, in: group) {
       item.select(option, in: group)
     }
     if let subtitleId = manualSubtitleId,
-       let group = asset.mediaSelectionGroup(for: .legible),
+       let group = asset.mediaSelectionGroup(forMediaCharacteristic: .legible),
        let option = mediaOption(for: subtitleId, in: group) {
       item.select(option, in: group)
     }
@@ -363,7 +372,7 @@ class NativePlayerView: NSObject, FlutterPlatformView {
   private func audioTracksPayload() -> [[String: Any]] {
     guard let item = player.currentItem else { return [] }
     guard let asset = item.asset as? AVURLAsset else { return [] }
-    guard let group = asset.mediaSelectionGroup(for: .audible) else { return [] }
+    guard let group = asset.mediaSelectionGroup(forMediaCharacteristic: .audible) else { return [] }
     let selected = item.currentMediaSelection.selectedMediaOption(in: group)
     var payload: [[String: Any]] = []
     for (index, option) in group.options.enumerated() {
@@ -380,7 +389,7 @@ class NativePlayerView: NSObject, FlutterPlatformView {
   private func setAudioTrack(id: String?) {
     guard let item = player.currentItem else { return }
     guard let asset = item.asset as? AVURLAsset else { return }
-    guard let group = asset.mediaSelectionGroup(for: .audible) else { return }
+    guard let group = asset.mediaSelectionGroup(forMediaCharacteristic: .audible) else { return }
     if let id = id, let option = mediaOption(for: id, in: group) {
       manualAudioId = id
       item.select(option, in: group)
@@ -395,7 +404,7 @@ class NativePlayerView: NSObject, FlutterPlatformView {
   private func subtitleTracksPayload() -> [[String: Any]] {
     guard let item = player.currentItem else { return [] }
     guard let asset = item.asset as? AVURLAsset else { return [] }
-    guard let group = asset.mediaSelectionGroup(for: .legible) else { return [] }
+    guard let group = asset.mediaSelectionGroup(forMediaCharacteristic: .legible) else { return [] }
     let selected = item.currentMediaSelection.selectedMediaOption(in: group)
     var payload: [[String: Any]] = []
     for (index, option) in group.options.enumerated() {
@@ -413,7 +422,7 @@ class NativePlayerView: NSObject, FlutterPlatformView {
   private func setSubtitleTrack(id: String?) {
     guard let item = player.currentItem else { return }
     guard let asset = item.asset as? AVURLAsset else { return }
-    guard let group = asset.mediaSelectionGroup(for: .legible) else { return }
+    guard let group = asset.mediaSelectionGroup(forMediaCharacteristic: .legible) else { return }
     if let id = id, let option = mediaOption(for: id, in: group) {
       manualSubtitleId = id
       item.select(option, in: group)
