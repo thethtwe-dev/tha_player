@@ -11,30 +11,34 @@ Future<List<ThaMediaSource>> parseM3U(
   Map<String, String>? headers,
 }) async {
   final client = HttpClient();
-  if (headers != null && headers.isNotEmpty) {
-    client.userAgent = headers['User-Agent'];
-  }
-  final req = await client.getUrl(Uri.parse(url));
-  headers?.forEach((k, v) => req.headers.set(k, v));
-  final resp = await req.close();
-  if (resp.statusCode != 200) {
-    throw StateError('Failed to load M3U: HTTP ${resp.statusCode}');
-  }
-  final body = await utf8.decodeStream(resp);
-  final lines = body.split('\n');
-  final result = <ThaMediaSource>[];
-  for (final raw in lines) {
-    final line = raw.trim();
-    if (line.isEmpty) continue;
-    if (line.startsWith('#')) continue;
-    // Basic absolute/relative handling
-    final uri = Uri.parse(line);
-    String resolved = line;
-    if (!uri.hasScheme) {
-      final base = Uri.parse(url);
-      resolved = base.resolveUri(Uri.parse(line)).toString();
+  try {
+    if (headers != null && headers.isNotEmpty) {
+      client.userAgent = headers['User-Agent'];
     }
-    result.add(ThaMediaSource(resolved));
+    final req = await client.getUrl(Uri.parse(url));
+    headers?.forEach((k, v) => req.headers.set(k, v));
+    final resp = await req.close();
+    if (resp.statusCode != 200) {
+      throw StateError('Failed to load M3U: HTTP ${resp.statusCode}');
+    }
+    final body = await utf8.decodeStream(resp);
+    final lines = body.split('\n');
+    final result = <ThaMediaSource>[];
+    for (final raw in lines) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+      if (line.startsWith('#')) continue;
+      // Basic absolute/relative handling
+      final uri = Uri.parse(line);
+      String resolved = line;
+      if (!uri.hasScheme) {
+        final base = Uri.parse(url);
+        resolved = base.resolveUri(Uri.parse(line)).toString();
+      }
+      result.add(ThaMediaSource(resolved));
+    }
+    return result;
+  } finally {
+    client.close(force: true);
   }
-  return result;
 }

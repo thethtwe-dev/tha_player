@@ -17,6 +17,53 @@ class ThaPlaybackState {
   });
 }
 
+/// Structured playback error emitted by the native layer.
+@immutable
+class ThaPlayerError {
+  final String code;
+  final String message;
+  final bool isRecoverable;
+  final Map<String, dynamic>? details;
+
+  const ThaPlayerError({
+    required this.code,
+    required this.message,
+    required this.isRecoverable,
+    this.details,
+  });
+
+  factory ThaPlayerError.fromEvent(Map<dynamic, dynamic> evt) {
+    final codeRaw = evt['errorCode']?.toString();
+    final messageRaw =
+        evt['errorMessage']?.toString() ?? evt['error']?.toString();
+    final recoverable = evt['errorRecoverable'] == true;
+    Map<String, dynamic>? details;
+    final rawDetails = evt['errorDetails'];
+    if (rawDetails is Map) {
+      details = Map<String, dynamic>.from(
+        rawDetails.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    return ThaPlayerError(
+      code: codeRaw ?? 'unknown',
+      message: messageRaw ?? 'Playback error',
+      isRecoverable: recoverable,
+      details: details,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ThaPlayerError &&
+        other.code == code &&
+        other.message == message &&
+        other.isRecoverable == isRecoverable;
+  }
+
+  @override
+  int get hashCode => Object.hash(code, message, isRecoverable);
+}
+
 /// Listens to the platform event channel and exposes playback state updates.
 class ThaNativeEvents {
   final int viewId;
@@ -34,6 +81,9 @@ class ThaNativeEvents {
 
   // Emits non-null when native side reports an error; clear when playback resumes.
   final ValueNotifier<String?> error = ValueNotifier(null);
+
+  /// Structured error details emitted by the native layer.
+  final ValueNotifier<ThaPlayerError?> errorDetails = ValueNotifier(null);
 
   ThaNativeEvents(this.viewId) {
     _eventChannel = EventChannel('thaplayer/events_$viewId');
@@ -54,11 +104,19 @@ class ThaNativeEvents {
       final playing = evt['isPlaying'] == true;
       final buffering = evt['isBuffering'] == true;
       final errMsg = evt['error'] as String?;
-      if (errMsg != null && errMsg.isNotEmpty) {
-        error.value = errMsg;
+      final hasStructuredError =
+          evt['errorCode'] != null ||
+          evt['errorMessage'] != null ||
+          evt['errorRecoverable'] != null ||
+          evt['errorDetails'] != null;
+      if (errMsg != null && errMsg.isNotEmpty || hasStructuredError) {
+        final structured = ThaPlayerError.fromEvent(evt);
+        errorDetails.value = structured;
+        error.value = structured.message;
       } else if (playing) {
         // Clear error once playback resumes
         error.value = null;
+        errorDetails.value = null;
       }
       state.value = ThaPlaybackState(
         position: Duration(milliseconds: posMs),
@@ -73,5 +131,6 @@ class ThaNativeEvents {
     _sub?.cancel();
     state.dispose();
     error.dispose();
+    errorDetails.dispose();
   }
 }

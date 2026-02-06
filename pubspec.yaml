@@ -1,6 +1,6 @@
 name: tha_player
 description: "Native network-only video player with custom Android (ExoPlayer) and iOS (AVPlayer) engines."
-version: 0.4.1
+version: 0.5.0
 homepage: https://github.com/thethtwe-dev/tha_player
 repository: https://github.com/thethtwe-dev/tha_player
 issue_tracker: https://github.com/thethtwe-dev/tha_player/issues
@@ -12,8 +12,8 @@ topics:
   - thumbnails
 
 environment:
-  sdk: ^3.7.2
-  flutter: '>=3.3.0'
+  sdk: ^3.10.3
+  flutter: '>=3.38.0'
 
 dependencies:
   flutter:
@@ -21,12 +21,12 @@ dependencies:
   
   # No third-party Flutter playback plugins; we use native code via platform views
   cupertino_icons: ^1.0.8
-  plugin_platform_interface: ^2.0.2
+  plugin_platform_interface: ^2.1.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   
 flutter:
 

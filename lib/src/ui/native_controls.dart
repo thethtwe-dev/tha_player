@@ -39,24 +39,22 @@ class ThaNativeControls extends StatelessWidget {
               boxFitNotifier.value = fit;
               controller.setBoxFit(fit);
             },
-            itemBuilder:
-                (context) => [
-                  _fitItem('Contain', BoxFit.contain, boxFitNotifier.value),
-                  _fitItem('Cover', BoxFit.cover, boxFitNotifier.value),
-                  _fitItem('Fill', BoxFit.fill, boxFitNotifier.value),
-                ],
+            itemBuilder: (context) => [
+              _fitItem('Contain', BoxFit.contain, boxFitNotifier.value),
+              _fitItem('Cover', BoxFit.cover, boxFitNotifier.value),
+              _fitItem('Fill', BoxFit.fill, boxFitNotifier.value),
+            ],
           ),
           IconButton(
             icon: const Icon(Icons.fullscreen, color: Colors.white),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder:
-                      (_) => ThaNativeFullscreenPage(
-                        controller: controller,
-                        boxFitNotifier: boxFitNotifier,
-                        overlay: overlay,
-                      ),
+                  builder: (_) => ThaNativeFullscreenPage(
+                    controller: controller,
+                    boxFitNotifier: boxFitNotifier,
+                    overlay: overlay,
+                  ),
                 ),
               );
             },

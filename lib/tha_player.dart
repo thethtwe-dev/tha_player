@@ -9,6 +9,7 @@ export 'src/core/media_source.dart';
 export 'src/core/drm.dart';
 export 'src/platform/native_player_controller.dart';
 export 'src/platform/native_player_view.dart';
+export 'src/platform/native_events.dart';
 export 'src/platform/native_tracks.dart';
 export 'src/platform/playback_options.dart';
 export 'src/ui/native_fullscreen.dart';

@@ -187,13 +187,24 @@ class ThaPlayerPlatformView(
 
     player.addListener(object: Player.Listener {
       override fun onPlayerError(error: PlaybackException) {
+        val errorCode = error.errorCodeName ?: "UNKNOWN"
+        val message = error.message ?: "Playback error"
+        val recoverable = sharedEntry.playbackOptions.autoRetry && isRecoverableError(error)
         // Emit error event with a concise message
         eventsSink?.success(mapOf(
           "positionMs" to player.currentPosition.coerceAtLeast(0L),
           "durationMs" to (if (player.duration > 0) player.duration else 0L),
           "isBuffering" to false,
           "isPlaying" to false,
-          "error" to (error.errorCodeName ?: (error.message ?: "Playback error"))
+          "error" to message,
+          "errorCode" to errorCode,
+          "errorMessage" to message,
+          "errorRecoverable" to recoverable,
+          "errorDetails" to mapOf(
+            "code" to error.errorCode,
+            "name" to errorCode,
+            "cause" to (error.cause?.javaClass?.simpleName ?: "unknown")
+          )
         ))
         cancelReadyFallback()
         sharedEntry.pendingPlayOnceReady = false
@@ -298,6 +309,17 @@ class ThaPlayerPlatformView(
       "isPlaying" to playing,
     ))
     updateMediaSessionState(playing, buffering)
+  }
+
+  private fun isRecoverableError(error: PlaybackException): Boolean {
+    return when (error.errorCode) {
+      PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+      PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+      PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+      PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE,
+      PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> true
+      else -> false
+    }
   }
 
   private fun applyDataSaver(enable: Boolean) {

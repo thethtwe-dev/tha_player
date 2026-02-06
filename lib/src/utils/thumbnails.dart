@@ -39,24 +39,30 @@ Future<List<ThumbCue>> fetchVttThumbnails(
     return _thumbCache[cacheKey]!;
   }
   final client = HttpClient();
-  final req = await client.getUrl(Uri.parse(url));
-  headers?.forEach((k, v) => req.headers.set(k, v));
-  final resp = await req.close();
-  if (resp.statusCode != 200) {
-    throw StateError('Failed to fetch thumbnails VTT: HTTP ${resp.statusCode}');
+  try {
+    final req = await client.getUrl(Uri.parse(url));
+    headers?.forEach((k, v) => req.headers.set(k, v));
+    final resp = await req.close();
+    if (resp.statusCode != 200) {
+      throw StateError(
+        'Failed to fetch thumbnails VTT: HTTP ${resp.statusCode}',
+      );
+    }
+    final text = await utf8.decodeStream(resp);
+    final cues = parseWebVtt(text, base: Uri.parse(url));
+    if (cache) {
+      _thumbCache[cacheKey] = cues;
+    }
+    return cues;
+  } finally {
+    client.close(force: true);
   }
-  final text = await utf8.decodeStream(resp);
-  final cues = parseWebVtt(text, base: Uri.parse(url));
-  if (cache) {
-    _thumbCache[cacheKey] = cues;
-  }
-  return cues;
 }
 
 String _cacheKey(String url, Map<String, String>? headers) {
   if (headers == null || headers.isEmpty) return url;
-  final sorted =
-      headers.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+  final sorted = headers.entries.toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
   final buffer = StringBuffer(url);
   for (final entry in sorted) {
     buffer

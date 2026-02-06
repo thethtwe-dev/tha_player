@@ -233,9 +233,17 @@ class NativePlayerView: NSObject, FlutterPlatformView {
 
   @objc private func playerItemFailed(_ notification: Notification) {
     var message = "Playback error"
+    var code = "AVPlayerItemFailed"
+    var details: [String: Any] = [:]
     if let err = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError {
       message = err.localizedDescription
+      code = "\(err.domain):\(err.code)"
+      details = [
+        "domain": err.domain,
+        "code": err.code,
+      ]
     }
+    let recoverable = canAutoRetry()
     // Emit error to Dart
     eventSink?([
       "positionMs": Int(CMTimeGetSeconds(player.currentTime()) * 1000),
@@ -243,6 +251,10 @@ class NativePlayerView: NSObject, FlutterPlatformView {
       "isBuffering": false,
       "isPlaying": false,
       "error": message,
+      "errorCode": code,
+      "errorMessage": message,
+      "errorRecoverable": recoverable,
+      "errorDetails": details,
     ])
   }
 
@@ -452,6 +464,14 @@ class NativePlayerView: NSObject, FlutterPlatformView {
     }
     retryWorkItem = work
     DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+  }
+
+  private func canAutoRetry() -> Bool {
+    guard playbackOptions.autoRetry else { return false }
+    if playbackOptions.maxRetryCount >= 0 && retryAttempts >= playbackOptions.maxRetryCount {
+      return false
+    }
+    return true
   }
 }
 

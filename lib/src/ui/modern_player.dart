@@ -16,11 +16,13 @@ class ThaModernPlayer extends StatefulWidget {
   final Duration longPressSeek;
   final Duration autoHideAfter;
   final BoxFit initialBoxFit;
+  final ValueNotifier<BoxFit>? boxFitNotifier;
   final bool startLocked;
   final bool isFullscreen;
   final bool autoFullscreen;
   final ValueChanged<ThaPlaybackState>? onStateChanged;
   final ValueChanged<String?>? onError;
+  final ValueChanged<ThaPlayerError?>? onErrorDetails;
 
   const ThaModernPlayer({
     super.key,
@@ -30,11 +32,13 @@ class ThaModernPlayer extends StatefulWidget {
     this.longPressSeek = const Duration(seconds: 3),
     this.autoHideAfter = const Duration(seconds: 3),
     this.initialBoxFit = BoxFit.contain,
+    this.boxFitNotifier,
     this.startLocked = false,
     this.isFullscreen = false,
     this.autoFullscreen = false,
     this.onStateChanged,
     this.onError,
+    this.onErrorDetails,
   });
 
   @override
@@ -51,7 +55,8 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     BoxFit.fitHeight,
   ];
   static const double _dialogCornerRadius = 5;
-  late final ValueNotifier<BoxFit> _fit = ValueNotifier(widget.initialBoxFit);
+  late ValueNotifier<BoxFit> _fit;
+  VoidCallback? _prefsListener;
   bool _showControls = true;
   Timer? _hide;
   Duration? _preview;
@@ -81,6 +86,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
   bool _autoFullscreenTriggered = false;
   ThaPlaybackState? _lastStateNotification;
   String? _lastErrorNotification;
+  ThaPlayerError? _lastErrorDetailsNotification;
   List<ThaAudioTrack> _audioTracks = const <ThaAudioTrack>[];
   List<ThaSubtitleTrack> _subtitleTracks = const <ThaSubtitleTrack>[];
   Future<void>? _pendingAudioFetch;
@@ -137,7 +143,11 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     _hide?.cancel();
     _seekRepeat?.cancel();
     _seekFlashTimer?.cancel();
-    _fit.dispose();
+    _vbHide?.cancel();
+    _lockHintTimer?.cancel();
+    if (_prefsListener != null) {
+      widget.controller.preferences.removeListener(_prefsListener!);
+    }
     super.dispose();
   }
 
@@ -166,12 +176,18 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     Navigator.of(context)
         .push(
           MaterialPageRoute(
-            builder:
-                (_) => ThaNativeFullscreenPage(
-                  controller: widget.controller,
-                  boxFitNotifier: _fit,
-                  overlay: widget.overlay,
-                ),
+            builder: (_) => ThaNativeFullscreenPage(
+              controller: widget.controller,
+              boxFitNotifier: _fit,
+              overlay: widget.overlay,
+              doubleTapSeek: widget.doubleTapSeek,
+              longPressSeek: widget.longPressSeek,
+              autoHideAfter: widget.autoHideAfter,
+              startLocked: _locked,
+              onStateChanged: widget.onStateChanged,
+              onError: widget.onError,
+              onErrorDetails: widget.onErrorDetails,
+            ),
           ),
         )
         .then((_) {
@@ -184,6 +200,34 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
   @override
   void didUpdateWidget(covariant ThaModernPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      if (_prefsListener != null) {
+        oldWidget.controller.preferences.removeListener(_prefsListener!);
+      }
+      _fit = widget.boxFitNotifier ?? widget.controller.boxFitNotifier;
+      if (widget.boxFitNotifier == null) {
+        widget.controller.setInitialBoxFit(widget.initialBoxFit);
+      }
+      _applyPreferences(widget.controller.preferences.value, notify: false);
+      _prefsListener = () {
+        if (!mounted) return;
+        setState(
+          () => _applyPreferences(
+            widget.controller.preferences.value,
+            notify: false,
+          ),
+        );
+      };
+      widget.controller.preferences.addListener(_prefsListener!);
+    } else if (oldWidget.boxFitNotifier != widget.boxFitNotifier) {
+      _fit = widget.boxFitNotifier ?? widget.controller.boxFitNotifier;
+      if (widget.boxFitNotifier == null) {
+        widget.controller.setInitialBoxFit(widget.initialBoxFit);
+      }
+    } else if (oldWidget.initialBoxFit != widget.initialBoxFit &&
+        widget.boxFitNotifier == null) {
+      widget.controller.setInitialBoxFit(widget.initialBoxFit);
+    }
     if (oldWidget.autoFullscreen != widget.autoFullscreen &&
         widget.autoFullscreen) {
       _autoFullscreenTriggered = false;
@@ -202,9 +246,39 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
         prev.position != current.position;
   }
 
+  void _applyPreferences(ThaPlayerPreferences prefs, {bool notify = true}) {
+    _dataSaver = prefs.dataSaver;
+    _manualTrackId = prefs.manualVideoTrackId;
+    _manualAudioId = prefs.manualAudioTrackId;
+    _manualSubtitleId = prefs.manualSubtitleTrackId;
+    if (_speedBeforeBoost == null) {
+      _currentSpeed = prefs.playbackSpeed;
+    } else {
+      _speedBeforeBoost = prefs.playbackSpeed;
+    }
+    if (notify && mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _fit = widget.boxFitNotifier ?? widget.controller.boxFitNotifier;
+    if (widget.boxFitNotifier == null) {
+      widget.controller.setInitialBoxFit(widget.initialBoxFit);
+    }
+    _applyPreferences(widget.controller.preferences.value, notify: false);
+    _prefsListener = () {
+      if (!mounted) return;
+      setState(
+        () => _applyPreferences(
+          widget.controller.preferences.value,
+          notify: false,
+        ),
+      );
+    };
+    widget.controller.preferences.addListener(_prefsListener!);
     _locked = widget.startLocked;
     _restartHide();
     _maybeLoadThumbs();
@@ -398,6 +472,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
             if (_manualTrackId != null &&
                 tracks.every((t) => t.id != _manualTrackId)) {
               _manualTrackId = null;
+              unawaited(widget.controller.clearVideoTrackSelection());
             }
           });
         })
@@ -421,6 +496,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
             if (_manualAudioId != null &&
                 tracks.every((t) => t.id != _manualAudioId)) {
               _manualAudioId = null;
+              unawaited(widget.controller.selectAudioTrack(null));
             }
           });
         })
@@ -444,6 +520,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
             if (_manualSubtitleId != null &&
                 tracks.every((t) => t.id != _manualSubtitleId)) {
               _manualSubtitleId = null;
+              unawaited(widget.controller.selectSubtitleTrack(null));
             }
           });
         })
@@ -550,17 +627,8 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThaPlaybackState>(
-      valueListenable:
-          _events?.state ??
-          ValueNotifier(
-            const ThaPlaybackState(
-              position: Duration.zero,
-              duration: Duration.zero,
-              isPlaying: false,
-              isBuffering: true,
-            ),
-          ),
-      builder: (_, st, __) {
+      valueListenable: widget.controller.playbackState,
+      builder: (context, st, _) {
         if (widget.onStateChanged != null && _hasStateChanged(st)) {
           widget.onStateChanged!(st);
           _lastStateNotification = st;
@@ -570,6 +638,16 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
           widget.onError!(currentError);
           _lastErrorNotification = currentError;
         }
+        final currentErrorDetails = _events?.errorDetails.value;
+        if (widget.onErrorDetails != null &&
+            currentErrorDetails != _lastErrorDetailsNotification) {
+          widget.onErrorDetails!(currentErrorDetails);
+          _lastErrorDetailsNotification = currentErrorDetails;
+        }
+        final displayError = currentErrorDetails?.message ?? currentError;
+        final hasError = currentError != null || currentErrorDetails != null;
+        final displayErrorText = displayError ?? 'Playback error';
+        final showError = hasError && displayErrorText.trim().isNotEmpty;
         _ensureTracksLoaded(st);
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -598,10 +676,9 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
             if (left || right) {
               final delta = left ? -widget.doubleTapSeek : widget.doubleTapSeek;
               final t = st.position + delta;
-              final target =
-                  t < Duration.zero
-                      ? Duration.zero
-                      : (t > st.duration ? st.duration : t);
+              final target = t < Duration.zero
+                  ? Duration.zero
+                  : (t > st.duration ? st.duration : t);
               _stopLongPressSeek(animateHide: false);
               widget.controller.seekTo(target);
               final text =
@@ -635,10 +712,9 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
             final newPos =
                 (_preview ?? st.position) +
                 Duration(milliseconds: (diff * 50).toInt());
-            final clamped =
-                newPos < Duration.zero
-                    ? Duration.zero
-                    : (newPos > st.duration ? st.duration : newPos);
+            final clamped = newPos < Duration.zero
+                ? Duration.zero
+                : (newPos > st.duration ? st.duration : newPos);
             setState(() => _preview = clamped);
           },
           onHorizontalDragEnd: (_) {
@@ -718,12 +794,11 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
             children: [
               ValueListenableBuilder<BoxFit>(
                 valueListenable: _fit,
-                builder:
-                    (_, fit, __) => ThaNativePlayerView(
-                      controller: widget.controller,
-                      boxFit: fit,
-                      overlay: null,
-                    ),
+                builder: (_, fit, child) => ThaNativePlayerView(
+                  controller: widget.controller,
+                  boxFit: fit,
+                  overlay: child,
+                ),
               ),
               // Top transparent interaction layer to ensure taps anywhere are detected
               Positioned.fill(
@@ -761,13 +836,13 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                           isBuffering: false,
                         );
                     if (left || right) {
-                      final delta =
-                          left ? -widget.doubleTapSeek : widget.doubleTapSeek;
+                      final delta = left
+                          ? -widget.doubleTapSeek
+                          : widget.doubleTapSeek;
                       final t = st.position + delta;
-                      final target =
-                          t < Duration.zero
-                              ? Duration.zero
-                              : (t > st.duration ? st.duration : t);
+                      final target = t < Duration.zero
+                          ? Duration.zero
+                          : (t > st.duration ? st.duration : t);
                       _stopLongPressSeek(animateHide: false);
                       widget.controller.seekTo(target);
                       final text =
@@ -817,10 +892,9 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                     final newPos =
                         (_preview ?? st.position) +
                         Duration(milliseconds: (diff * 50).toInt());
-                    final clamped =
-                        newPos < Duration.zero
-                            ? Duration.zero
-                            : (newPos > st.duration ? st.duration : newPos);
+                    final clamped = newPos < Duration.zero
+                        ? Duration.zero
+                        : (newPos > st.duration ? st.duration : newPos);
                     setState(() => _preview = clamped);
                   },
                   onHorizontalDragEnd: (_) {
@@ -1006,7 +1080,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                   ),
                 ),
               // Error overlay (retry) on top of everything
-              if (_events?.error.value != null)
+              if (showError)
                 Container(
                   color: Colors.black54,
                   child: Center(
@@ -1022,7 +1096,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16.0),
                           child: Text(
-                            _events!.error.value ?? 'Playback error',
+                            displayErrorText,
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.white),
                           ),
@@ -1117,14 +1191,11 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
                 1,
                 double.infinity,
               ),
-              value:
-                  st.position.inMilliseconds
-                      .clamp(0, st.duration.inMilliseconds)
-                      .toDouble(),
-              onChanged:
-                  (v) => setState(
-                    () => _preview = Duration(milliseconds: v.toInt()),
-                  ),
+              value: st.position.inMilliseconds
+                  .clamp(0, st.duration.inMilliseconds)
+                  .toDouble(),
+              onChanged: (v) =>
+                  setState(() => _preview = Duration(milliseconds: v.toInt())),
               onChangeEnd: (v) {
                 widget.controller.seekTo(Duration(milliseconds: v.toInt()));
                 setState(() => _preview = null);
@@ -1269,7 +1340,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     if (_speedBeforeBoost != null) return;
     _speedBeforeBoost = _currentSpeed;
     setState(() => _currentSpeed = 2.0);
-    unawaited(widget.controller.setSpeed(2.0));
+    unawaited(widget.controller.setPlaybackSpeed(2.0, persist: false));
     _restartHide();
   }
 
@@ -1278,7 +1349,7 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     if (previous == null) return;
     _speedBeforeBoost = null;
     setState(() => _currentSpeed = previous);
-    unawaited(widget.controller.setSpeed(previous));
+    unawaited(widget.controller.setPlaybackSpeed(previous, persist: false));
     _restartHide();
   }
 
@@ -1465,8 +1536,8 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     final current = _activeTrack;
     final autoSubtitle =
         !_dataSaver && current != null && _manualTrackId == null
-            ? 'Current: ${current.displayLabel}'
-            : null;
+        ? 'Current: ${current.displayLabel}'
+        : null;
     items.add(
       PopupMenuItem(
         value: 'auto',
@@ -1620,14 +1691,9 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
               children: [
                 SizedBox(
                   width: 18,
-                  child:
-                      (speed - _currentSpeed).abs() < 0.01
-                          ? const Icon(
-                            Icons.check,
-                            size: 18,
-                            color: Colors.white,
-                          )
-                          : const SizedBox.shrink(),
+                  child: (speed - _currentSpeed).abs() < 0.01
+                      ? const Icon(Icons.check, size: 18, color: Colors.white)
+                      : const SizedBox.shrink(),
                 ),
                 const SizedBox(width: 8),
                 Text(_formatSpeed(speed)),
@@ -1656,65 +1722,59 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
             child: Wrap(
               spacing: 10,
               runSpacing: 10,
-              children:
-                  _boxFitChoices.map((fit) {
-                    final isSelected = fit == current;
-                    final label = _boxFitLabel(fit);
-                    final icon = _boxFitIcon(fit);
-                    final borderColor =
-                        isSelected ? Colors.white : Colors.white24;
-                    final background =
-                        isSelected
-                            ? const Color.fromRGBO(255, 255, 255, 0.18)
-                            : const Color.fromRGBO(255, 255, 255, 0.04);
-                    return SizedBox(
-                      width: 88,
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
+              children: _boxFitChoices.map((fit) {
+                final isSelected = fit == current;
+                final label = _boxFitLabel(fit);
+                final icon = _boxFitIcon(fit);
+                final borderColor = isSelected ? Colors.white : Colors.white24;
+                final background = isSelected
+                    ? const Color.fromRGBO(255, 255, 255, 0.18)
+                    : const Color.fromRGBO(255, 255, 255, 0.04);
+                return SizedBox(
+                  width: 88,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(_dialogCornerRadius),
+                      onTap: () => Navigator.of(dialogContext).pop(fit),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: background,
                           borderRadius: BorderRadius.circular(
                             _dialogCornerRadius,
                           ),
-                          onTap: () => Navigator.of(dialogContext).pop(fit),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: background,
-                              borderRadius: BorderRadius.circular(
-                                _dialogCornerRadius,
-                              ),
-                              border: Border.all(
-                                color: borderColor,
-                                width: isSelected ? 2 : 1,
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(icon, color: Colors.white, size: 26),
-                                const SizedBox(height: 6),
-                                Text(
-                                  label,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                    fontWeight:
-                                        isSelected
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          border: Border.all(
+                            color: borderColor,
+                            width: isSelected ? 2 : 1,
                           ),
                         ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(icon, color: Colors.white, size: 26),
+                            const SizedBox(height: 6),
+                            Text(
+                              label,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    );
-                  }).toList(),
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
           actions: [
@@ -1791,15 +1851,14 @@ class _ThaModernPlayerState extends State<ThaModernPlayer> {
     }
     cue ??= cues.last;
     final uri = cue.image.toString();
-    final crop =
-        cue.hasCrop
-            ? Rect.fromLTWH(
-              (cue.x!).toDouble(),
-              (cue.y!).toDouble(),
-              (cue.w!).toDouble(),
-              (cue.h!).toDouble(),
-            )
-            : null;
+    final crop = cue.hasCrop
+        ? Rect.fromLTWH(
+            (cue.x!).toDouble(),
+            (cue.y!).toDouble(),
+            (cue.w!).toDouble(),
+            (cue.h!).toDouble(),
+          )
+        : null;
     const targetW = 160.0;
     if (crop == null) {
       return Image.network(

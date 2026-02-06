@@ -14,7 +14,8 @@ import okhttp3.OkHttpClient
 import java.lang.ref.WeakReference
 
 class ThaPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware {
-  private lateinit var channel: MethodChannel
+  private lateinit var versionChannel: MethodChannel
+  private lateinit var utilChannel: MethodChannel
   private lateinit var context: Context
   private var activity: Activity? = null
 
@@ -32,9 +33,11 @@ class ThaPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
   }
 
   override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(binding.binaryMessenger, "thaplayer/channel")
+    versionChannel = MethodChannel(binding.binaryMessenger, "tha_player")
+    utilChannel = MethodChannel(binding.binaryMessenger, "thaplayer/channel")
     context = binding.applicationContext
-    channel.setMethodCallHandler(this)
+    versionChannel.setMethodCallHandler(this)
+    utilChannel.setMethodCallHandler(this)
 
     // Register platform view for native player surface
     binding.platformViewRegistry.registerViewFactory(
@@ -44,7 +47,8 @@ class ThaPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-    channel.setMethodCallHandler(null)
+    versionChannel.setMethodCallHandler(null)
+    utilChannel.setMethodCallHandler(null)
   }
 
   override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -69,6 +73,9 @@ class ThaPlayerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
 
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
     when (call.method) {
+      "getPlatformVersion" -> {
+        result.success("Android " + android.os.Build.VERSION.RELEASE)
+      }
       "setVolume" -> {
         val delta = call.argument<Double>("value") ?: 0.0
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager

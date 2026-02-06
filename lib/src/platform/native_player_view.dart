@@ -41,20 +41,20 @@ class _ThaNativePlayerViewState extends State<ThaNativePlayerView> {
           );
         },
         onCreatePlatformView: (params) {
-          final controller = services
-              .PlatformViewsService.initSurfaceAndroidView(
-            id: params.id,
-            viewType: viewType,
-            layoutDirection: TextDirection.ltr,
-            creationParams: creationParams,
-            creationParamsCodec: const services.StandardMessageCodec(),
-          );
+          final controller =
+              services.PlatformViewsService.initSurfaceAndroidView(
+                id: params.id,
+                viewType: viewType,
+                layoutDirection: TextDirection.ltr,
+                creationParams: creationParams,
+                creationParamsCodec: const services.StandardMessageCodec(),
+              );
           controller.addOnPlatformViewCreatedListener(
             params.onPlatformViewCreated,
           );
           controller.addOnPlatformViewCreatedListener((id) {
             widget.controller.attachViewId(id);
-            widget.controller.setBoxFit(widget.boxFit);
+            widget.controller.setBoxFit(widget.boxFit, updatePreference: false);
           });
           controller.create();
           return controller;
@@ -67,7 +67,7 @@ class _ThaNativePlayerViewState extends State<ThaNativePlayerView> {
         creationParamsCodec: const services.StandardMessageCodec(),
         onPlatformViewCreated: (id) {
           widget.controller.attachViewId(id);
-          widget.controller.setBoxFit(widget.boxFit);
+          widget.controller.setBoxFit(widget.boxFit, updatePreference: false);
         },
       );
     } else {
@@ -87,7 +87,7 @@ class _ThaNativePlayerViewState extends State<ThaNativePlayerView> {
   void didUpdateWidget(covariant ThaNativePlayerView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.boxFit != widget.boxFit) {
-      widget.controller.setBoxFit(widget.boxFit);
+      widget.controller.setBoxFit(widget.boxFit, updatePreference: false);
     }
   }
 }

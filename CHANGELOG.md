@@ -1,3 +1,24 @@
+## 0.5.0
+
+- Persist playback preferences (speed, quality, audio, subtitles, data saver) on the controller for seamless fullscreen swaps
+- Added structured error reporting (`ThaPlayerError`) alongside the existing string callback
+- Exposed controller-level playback state and error listenables
+- Shared BoxFit state by default via the controller
+- Migration: prefer `ctrl.playbackState` and `onErrorDetails`/`ctrl.errorDetails` for the new APIs
+
+## 0.4.3
+
+- Updated Dart/Flutter SDK constraints to the latest stable toolchain
+- Upgraded `plugin_platform_interface` and `flutter_lints` to current releases
+
+## 0.4.2
+
+- Fixed Android method channel wiring so `getPlatformVersion` resolves correctly
+- Preserve modern player settings (seek/auto-hide/lock) across fullscreen transitions with shared BoxFit state
+- Avoid leaking timers/fallback notifiers in the modern player
+- Close HTTP clients after parsing M3U playlists and thumbnail VTT files
+- Capture last playback position before reattaching native views
+
 ## 0.4.1
 
 - Modern player quick actions now sit in a tidy wrap along the top-left, keeping the progress and transport controls anchored to the bottom without overlap

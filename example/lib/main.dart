@@ -30,9 +30,24 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  TextEditingController controller = TextEditingController();
+  static const String _defaultUrl =
+      'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+  late final TextEditingController _urlController = TextEditingController(
+    text: _defaultUrl,
+  );
   bool _isLive = false;
   bool _autoFullscreen = false;
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  bool _isValidUrl(String value) {
+    final uri = Uri.tryParse(value.trim());
+    return uri != null && (uri.isScheme('http') || uri.isScheme('https'));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,8 +60,13 @@ class _HomePageState extends State<HomePage> {
           spacing: 15,
           children: [
             TextField(
-              controller: controller,
-              decoration: InputDecoration(hintText: 'Insert Playable Url'),
+              controller: _urlController,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                hintText: 'Insert Playable Url',
+                helperText: 'Tip: paste an HTTPS stream or MP4 URL',
+              ),
             ),
 
             SwitchListTile(
@@ -63,15 +83,23 @@ class _HomePageState extends State<HomePage> {
 
             ElevatedButton.icon(
               onPressed: () {
+                final url = _urlController.text.trim();
+                if (!_isValidUrl(url)) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please enter a valid http/https URL.'),
+                    ),
+                  );
+                  return;
+                }
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder:
-                        (c) => PlayerScreen(
-                          url: controller.text,
-                          isLive: _isLive,
-                          autoFullscreen: _autoFullscreen,
-                        ),
+                    builder: (c) => PlayerScreen(
+                      url: url,
+                      isLive: _isLive,
+                      autoFullscreen: _autoFullscreen,
+                    ),
                   ),
                 );
               },

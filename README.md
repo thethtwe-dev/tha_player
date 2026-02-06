@@ -10,7 +10,8 @@ Native, network‑only video player for Flutter with modern MX/VLC‑style UX. A
 - ✅ Gestures: tap to show/hide, double‑tap seek, long‑press skip, horizontal scrub, vertical volume/brightness
 - ✅ Controls: play/pause, speed, fullscreen (manual or auto), lock, BoxFit (contain/cover/fill/fitWidth/fitHeight)
 - ✅ Quality, audio, and subtitle track selection with data saver toggle
-- ✅ Configurable retry/backoff, error callbacks, PiP playback controls
+- ✅ Persistent playback preferences (speed, quality, audio, subtitles, data saver)
+- ✅ Configurable retry/backoff, structured errors, PiP playback controls
 - ✅ Thumbnails: WebVTT sprites or image sequences during seek preview (cached in-memory)
 - ✅ DRM (Android): Widevine and ClearKey
 - ✅ M3U playlist parsing utility
@@ -24,7 +25,7 @@ Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  tha_player: ^0.4.0
+  tha_player: ^0.5.0
 ```
 
 Then:
@@ -49,6 +50,10 @@ final ctrl = ThaNativePlayerController.single(
     maxRetryCount: 5,
     initialRetryDelay: Duration(milliseconds: 800),
   ),
+  initialPreferences: const ThaPlayerPreferences(
+    playbackSpeed: 1.0,
+    dataSaver: false,
+  ),
 );
 
 // In build:
@@ -60,15 +65,25 @@ AspectRatio(
     longPressSeek: Duration(seconds: 3),
     autoHideAfter: Duration(seconds: 3),
     initialBoxFit: BoxFit.contain,
+    onErrorDetails: (err) {
+      if (err != null) {
+        debugPrint('Playback error: ${err.code} • ${err.message}');
+      }
+    },
   ),
 )
 ```
 
+### Migration to 0.5.0
+1. Preferences now live on the controller (`ctrl.preferences`) and persist across fullscreen.
+2. Use `ctrl.playbackState` instead of listening directly to platform events.
+3. Prefer `onErrorDetails` / `ctrl.errorDetails` for structured failures (string `onError` still works).
+
 ### Fullscreen
-Tap the fullscreen icon in the control bar. Playback position and state are preserved when entering/exiting fullscreen.
+Tap the fullscreen icon in the control bar. Playback state, BoxFit, and preferences are preserved when entering/exiting fullscreen.
 
 ### BoxFit
-Choose between `contain`, `cover`, `fill`, `fitWidth`, and `fitHeight` from the menu.
+Choose between `contain`, `cover`, `fill`, `fitWidth`, and `fitHeight` from the menu. BoxFit is shared via the controller by default.
 
 ### Track Selection
 Use the control bar to switch quality, audio, or subtitle tracks at runtime. You can also fetch tracks directly:
@@ -79,6 +94,33 @@ final audios = await ctrl.getAudioTracks();
 final subtitles = await ctrl.getSubtitleTracks();
 await ctrl.selectAudioTrack(audios.first.id);
 await ctrl.selectSubtitleTrack(null); // disable captions
+```
+
+### Playback State
+Listen to the controller’s playback state without reaching into the event channel:
+
+```
+ValueListenableBuilder<ThaPlaybackState>(
+  valueListenable: ctrl.playbackState,
+  builder: (_, state, __) => Text(
+    '${state.position.inSeconds}s / ${state.duration.inSeconds}s',
+  ),
+)
+```
+
+### Preferences
+Preferences live on the controller so fullscreen swaps preserve your choices:
+
+```
+await ctrl.setSpeed(1.5); // persists
+await ctrl.setDataSaver(true);
+await ctrl.selectAudioTrack(null); // reset to default
+```
+
+You can also inspect the current preference snapshot via `ctrl.preferences.value`, or reset to the initial defaults:
+
+```
+ctrl.resetPreferences();
 ```
 
 ### Lock Controls
@@ -123,7 +165,7 @@ Thumbnails are cached in-memory. Call `clearThumbnailCache()` if you need to pur
 
 ### Resilient playback
 
-`ThaPlaybackOptions` lets you tweak retry/backoff behaviour and rebuffer handling. Failures are surfaced via `ThaNativeEvents.error` and the `onError` callback on `ThaModernPlayer`.
+`ThaPlaybackOptions` lets you tweak retry/backoff behaviour and rebuffer handling. Failures are surfaced via `ThaNativeEvents.error` for legacy use, plus `ThaPlayerError` through `ctrl.errorDetails` or `onErrorDetails` on `ThaModernPlayer`.
 
 ### Custom HTTP (Android)
 
