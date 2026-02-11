@@ -1,6 +1,6 @@
 name: tha_player
 description: "Native network-only video player with custom Android (ExoPlayer) and iOS (AVPlayer) engines."
-version: 0.5.1
+version: 0.5.2
 homepage: https://github.com/thethtwe-dev/tha_player
 repository: https://github.com/thethtwe-dev/tha_player
 issue_tracker: https://github.com/thethtwe-dev/tha_player/issues

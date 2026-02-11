@@ -465,13 +465,17 @@ class ThaPlayerPlatformView(
   private fun collectAudioTracks(): List<Map<String, Any?>> {
     val tracks = mutableListOf<Map<String, Any?>>()
     val groups = player.currentTracks.groups
-    groups.forEachIndexed { groupIndex, group ->
-      if (group.type != C.TRACK_TYPE_AUDIO) return@forEachIndexed
+    val signatureCounts = mutableMapOf<String, Int>()
+    groups.forEach { group ->
+      if (group.type != C.TRACK_TYPE_AUDIO) return@forEach
       val trackGroup = group.mediaTrackGroup
       for (trackIndex in 0 until trackGroup.length) {
         val format = trackGroup.getFormat(trackIndex)
+        val signature = audioTrackSignature(format)
+        val occurrence = signatureCounts[signature] ?: 0
+        signatureCounts[signature] = occurrence + 1
         val entry = mutableMapOf<String, Any?>()
-        entry["id"] = "$groupIndex:$trackIndex"
+        entry["id"] = stableTrackId("audio", signature, occurrence)
         entry["label"] = format.label ?: format.codecs ?: "Audio ${trackIndex + 1}"
         entry["language"] = format.language
         entry["selected"] = group.isTrackSelected(trackIndex)
@@ -488,15 +492,8 @@ class ThaPlayerPlatformView(
       player.trackSelectionParameters = builder.build()
       return
     }
-    val pair = parseGroupTrackIndex(id) ?: return
-    val groupIndex = pair.first
-    val trackIndex = pair.second
-    val groups = player.currentTracks.groups
-    if (groupIndex !in groups.indices) return
-    val group = groups[groupIndex]
-    val trackGroup = group.mediaTrackGroup
-    if (trackIndex < 0 || trackIndex >= trackGroup.length) return
-    val override = TrackSelectionOverride(trackGroup, listOf(trackIndex))
+    val selection = resolveAudioSelection(id) ?: return
+    val override = TrackSelectionOverride(selection.first, listOf(selection.second))
     builder.clearOverridesOfType(C.TRACK_TYPE_AUDIO)
     builder.setOverrideForType(override)
     player.trackSelectionParameters = builder.build()
@@ -551,6 +548,69 @@ class ThaPlayerPlatformView(
     val groupIndex = parts[0].toIntOrNull() ?: return null
     val trackIndex = parts[1].toIntOrNull() ?: return null
     return groupIndex to trackIndex
+  }
+
+  private fun resolveAudioSelection(id: String): Pair<androidx.media3.common.TrackGroup, Int>? {
+    parseGroupTrackIndex(id)?.let { pair ->
+      val groupIndex = pair.first
+      val trackIndex = pair.second
+      val groups = player.currentTracks.groups
+      if (groupIndex in groups.indices) {
+        val group = groups[groupIndex]
+        val trackGroup = group.mediaTrackGroup
+        if (group.type == C.TRACK_TYPE_AUDIO && trackIndex in 0 until trackGroup.length) {
+          return trackGroup to trackIndex
+        }
+      }
+    }
+
+    val stable = parseStableTrackId(id, "audio") ?: return null
+    val groups = player.currentTracks.groups
+    val signatureCounts = mutableMapOf<String, Int>()
+    for (group in groups) {
+      if (group.type != C.TRACK_TYPE_AUDIO) continue
+      val trackGroup = group.mediaTrackGroup
+      for (trackIndex in 0 until trackGroup.length) {
+        val format = trackGroup.getFormat(trackIndex)
+        val signature = audioTrackSignature(format)
+        val occurrence = signatureCounts[signature] ?: 0
+        signatureCounts[signature] = occurrence + 1
+        if (signature == stable.first && occurrence == stable.second) {
+          return trackGroup to trackIndex
+        }
+      }
+    }
+    return null
+  }
+
+  private fun audioTrackSignature(format: Format): String {
+    val normalizedBitrate = if (format.bitrate != Format.NO_VALUE) format.bitrate else -1
+    val normalizedChannels = if (format.channelCount != Format.NO_VALUE) format.channelCount else -1
+    val normalizedSampleRate = if (format.sampleRate != Format.NO_VALUE) format.sampleRate else -1
+    val raw = listOf(
+      format.id.orEmpty(),
+      format.language.orEmpty(),
+      format.label.orEmpty(),
+      format.codecs.orEmpty(),
+      format.sampleMimeType.orEmpty(),
+      normalizedBitrate.toString(),
+      normalizedChannels.toString(),
+      normalizedSampleRate.toString(),
+      format.roleFlags.toString(),
+      format.selectionFlags.toString(),
+    ).joinToString("|")
+    return Base64.encodeToString(raw.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+  }
+
+  private fun stableTrackId(prefix: String, signature: String, occurrence: Int): String {
+    return "$prefix:$signature:$occurrence"
+  }
+
+  private fun parseStableTrackId(id: String, prefix: String): Pair<String, Int>? {
+    val parts = id.split(":", limit = 3)
+    if (parts.size != 3 || parts[0] != prefix) return null
+    val occurrence = parts[2].toIntOrNull() ?: return null
+    return parts[1] to occurrence
   }
 
   private fun requestPictureInPicture(): Boolean {

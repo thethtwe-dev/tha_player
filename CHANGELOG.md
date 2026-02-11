@@ -1,3 +1,8 @@
+## 0.5.2
+
+- Fixed unreliable Android audio track switching by replacing transient index IDs with stable track IDs
+- Added backward-compatible audio selection fallback for legacy IDs
+
 ## 0.5.1
 
 - Fixed iOS build errors around AVURLAsset HTTP header options and media selection APIs
